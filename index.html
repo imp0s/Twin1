@@ -97,54 +97,50 @@ let var_= {direct:1, formal:1, verbose:1, bullets:1, escalate:1};
 let asked = 0, targetQuestions = 10;
 
 // Realistic option text factories (tiny templates)
-function draftFromDeltas(ctx, d){
-  const toneDirect = d.direct>0.2 ? "Direct" : (d.direct<-0.2 ? "Diplomatic" : "Neutral");
-  const formality  = d.formal>0.2 ? "Formal"  : (d.formal<-0.2 ? "Casual pro" : "Neutral");
-  const bullets    = d.bullets>0.2;
-  const verbose    = d.verbose>0.2;
-  const signoff    = formality==="Formal" ? "Regards," : "Thanks,";
+// Realistic option text factories (now respects variant A/B)
+function draftFromDeltas(ctx, d, variantId) {
+  const toneDirect = d.direct > 0.2 ? "Direct" : (d.direct < -0.2 ? "Diplomatic" : "Neutral");
+  const formality  = d.formal > 0.2 ? "Formal"  : (d.formal < -0.2 ? "Casual pro" : "Neutral");
+  const bullets    = d.bullets > 0.2;
+  const verbose    = d.verbose > 0.2;
+  const signoff    = formality === "Formal" ? "Regards," : "Thanks,";
   const name       = "—M";
+
+  // Actions (channel/timing) are generated directly from deltas
+  if (ctx === "choose_channel") {
+    if (d.escalate > 0.3) return "Call now to unblock, then send a 3-bullet summary.";
+    if (d.direct   > 0.3) return "Teams message now to align, follow with a 15-min call if needed.";
+    return "Email today with a concise summary and the next step.";
+  }
 
   const base = {
     ext_status: {
-      subject: "Update on delivery timing",
       A: bullets
          ? `- Shipment delayed by 2 days.\n- Cause: carrier backlog.\n- New ETA: Thursday.\nPlease confirm receipt and any impact on your side.\n${signoff}\n${name}`
-         : `${toneDirect==="Direct"?"Quick update: ":""}The shipment is delayed by two days due to carrier backlog. New ETA is Thursday. Please confirm receipt and any downstream impact.\n\n${signoff}\n${name}`,
+         : `${toneDirect==="Direct"?"Quick update: ":""}The shipment is delayed by two days due to carrier backlog. New ETA is Thursday. Please confirm any downstream impact.\n\n${signoff}\n${name}`,
       B: `${verbose?"Providing some detail: ":""}We’ve been informed of a two-day delay caused by a carrier backlog; revised ETA is Thursday. Let me know if you need serials/photos. ${signoff}\n${name}`
     },
     internal_note: {
-      subject: "Risk summary",
       A: bullets
-         ? `- Risk: PCB yield variance on batch #42\n- Impact: 1–2d slip if rework needed\n- Mitigation: tighten AOI, add spot QC photos`
+         ? `- Risk: PCB yield variance on batch #42\n- Impact: 1–2d slip if rework needed\n- Mitigation: tighten AOI; add spot QC photos`
          : `Key risk is PCB yield variance on batch #42. Impact could be a 1–2 day slip if rework is required. Mitigation: tighten AOI and add spot QC photos.`,
       B: bullets
          ? `- Observed variance; monitoring\n- If issues persist: rework path\n- Will report next checkpoint`
          : `We’ve observed some variance and are monitoring. If issues persist we’ll trigger rework. I’ll report again at the next checkpoint.`
     },
     negotiation: {
-      subject: "Scope alignment",
       A: `${formality==="Formal"?"Per our agreement, ":""}we can include item A this sprint, but items B/C would extend the timeline. Suggest trading B for A now, with C in the next cycle. ${toneDirect==="Direct"?"Please confirm by EOD.":""}`,
       B: `Appreciate the asks. We could take item A now; B/C would push timing. Open to options—happy to discuss what’s most critical first.`
     },
     followup: {
-      subject: "Missed meeting follow-up",
       A: `${toneDirect==="Direct"?"Missed the slot—":""}Can we lock a 15-min today or tomorrow morning? I’ll send notes upfront to keep it tight.`,
       B: `Sorry we missed each other. Would you prefer a short call this week or an email summary instead?`
     }
   };
 
-  // action choice phrasing
-  if (ctx==="choose_channel") {
-    if (d.escalate>0.3) return "Call now to unblock, then send a 3-bullet summary.";
-    if (d.direct>0.3)   return "Teams message now to align, follow with 15-min call if needed.";
-    return "Email today with summary and proposed next step.";
-  }
-
-  const s = base[ctx];
-  if (!s) return "—";
-  // choose A/B variant deterministically
-  return s.A ?? s.B;
+  const v = (variantId || "").toUpperCase().includes("B") ? "B" : "A";
+  const ctxBlock = base[ctx];
+  return ctxBlock ? (ctxBlock[v] || ctxBlock.A) : "—";
 }
 
 // Scenarios: each probes axes; options carry deltas and render realistic text
@@ -212,7 +208,9 @@ function renderNext(){
   optsDiv.innerHTML="";
   scn.options.forEach(opt=>{
     const div=document.createElement("div"); div.className="opt";
-    const txt = scn.kind==="text" ? draftFromDeltas(scn.id, opt.deltas) : draftFromDeltas("choose_channel", opt.deltas);
+const txt = scn.kind === "text"
+  ? draftFromDeltas(scn.id, opt.deltas, opt.id)   // <-- pass opt.id
+  : draftFromDeltas("choose_channel", opt.deltas, opt.id);
     div.innerHTML = `<h4>${opt.id}</h4><p>${txt.replace(/\n/g,"<br/>")}</p>`;
     const btn=document.createElement("button"); btn.textContent="Choose this";
     btn.onclick=()=>{
