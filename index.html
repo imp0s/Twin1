@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Twin Calibrator + OpenAI Tester (Realistic)</title>
+<title>Twin Calibrator + OpenAI Tester (gpt-5 default)</title>
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:24px;line-height:1.35}
   .card{border:1px solid #ddd;border-radius:10px;padding:16px;margin:12px 0}
@@ -59,7 +59,8 @@
   <div class="row" style="margin-top:8px;">
     <input id="apikey" placeholder="OpenAI API key (sk-...)" style="flex:1;min-width:260px">
     <input id="org" placeholder="Organization ID (optional)" style="min-width:220px">
-    <select id="model">
+    <select id="model" title="Model">
+      <option value="gpt-5" selected>gpt-5</option>
       <option value="gpt-4o-mini">gpt-4o-mini</option>
       <option value="gpt-4o">gpt-4o</option>
       <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
@@ -86,18 +87,18 @@
     <summary>Show all candidates & scores</summary>
     <pre id="candidates"></pre>
   </details>
-  <small class="mono">Security note: This page calls OpenAI from your browser. Your key is only used in-memory on this page and is not stored.</small>
+  <small class="mono">Keys and preferences are stored in your browser’s localStorage for convenience. Clear storage to remove.</small>
 </div>
 
 <script>
-// --- Calibration model (axes + posterior) ---
+// ---------- Calibration model ----------
 const AXES = ["direct","formal","verbose","bullets","escalate"];
 let mu  = {direct:0, formal:0, verbose:0, bullets:0, escalate:0};
 let var_= {direct:1, formal:1, verbose:1, bullets:1, escalate:1};
 let asked = 0, targetQuestions = 10;
+let askedSet = new Set();
 
-// Realistic option text factories (tiny templates)
-// Realistic option text factories (now respects variant A/B)
+// Realistic option text factories (respects variant A/B)
 function draftFromDeltas(ctx, d, variantId) {
   const toneDirect = d.direct > 0.2 ? "Direct" : (d.direct < -0.2 ? "Diplomatic" : "Neutral");
   const formality  = d.formal > 0.2 ? "Formal"  : (d.formal < -0.2 ? "Casual pro" : "Neutral");
@@ -106,7 +107,6 @@ function draftFromDeltas(ctx, d, variantId) {
   const signoff    = formality === "Formal" ? "Regards," : "Thanks,";
   const name       = "—M";
 
-  // Actions (channel/timing) are generated directly from deltas
   if (ctx === "choose_channel") {
     if (d.escalate > 0.3) return "Call now to unblock, then send a 3-bullet summary.";
     if (d.direct   > 0.3) return "Teams message now to align, follow with a 15-min call if needed.";
@@ -143,7 +143,7 @@ function draftFromDeltas(ctx, d, variantId) {
   return ctxBlock ? (ctxBlock[v] || ctxBlock.A) : "—";
 }
 
-// Scenarios: each probes axes; options carry deltas and render realistic text
+// Scenarios catalog (probes axes; options carry deltas and realistic text)
 const SCENARIOS = [
   { id:"ext_status", text:"External status update about a 2-day delay.", kind:"text",
     options:[
@@ -179,23 +179,40 @@ const SCENARIOS = [
 ];
 
 // Info-gain proxy
-function scoreScenario(s){ let v=0; for (const k in s.weights) v += s.weights[k]*(var_[k]??0); return v+Math.random()*0.01; }
-// Posterior update
-function updatePosterior(d){ for (const k of AXES){ const delta=d[k]??0; mu[k]+=0.35*delta; var_[k]=Math.max(0.05,var_[k]*0.85);} }
-// Progress
-function progressPct(){ const H0=AXES.length*Math.log(2); const Ht=AXES.reduce((a,k)=>a+Math.log(1+var_[k]),0); return Math.max(0,Math.min(100,Math.round(100*(1-Ht/H0)))); }
-// Build soft prompt text (updates every click)
+function scoreScenario(s){
+  let v=0; for (const k in s.weights) v += s.weights[k]*(var_[k]??0);
+  return v + Math.random()*0.01;
+}
+// Posterior update (stronger learning)
+function updatePosterior(d){
+  for (const k of AXES){
+    const delta = d[k] ?? 0;
+    mu[k]  = mu[k] + 0.55 * delta;           // increased learning rate
+    var_[k]= Math.max(0.05, var_[k] * 0.85); // shrink uncertainty
+  }
+}
+// Progress = entropy reduction proxy using diag cov
+function progressPct(){
+  const H0 = AXES.length * Math.log(2);
+  const Ht = AXES.reduce((a,k)=>a+Math.log(1+var_[k]),0);
+  return Math.max(0, Math.min(100, Math.round(100*(1 - Ht/H0))));
+}
+// Build soft prompt (lower thresholds to reflect change sooner)
 function buildSoftPrompt(){
   const prefs=[];
-  if (mu.direct>0.2) prefs.push("Be direct."); else if (mu.direct<-0.2) prefs.push("Be diplomatic.");
-  if (mu.formal>0.2) prefs.push("Use a formal register."); else if (mu.formal<-0.2) prefs.push("Use a concise professional tone.");
-  if (mu.verbose>0.2) prefs.push("Offer fuller explanations."); else if (mu.verbose<-0.2) prefs.push("Be concise; avoid filler.");
-  if (mu.bullets>0.2) prefs.push("Prefer bullet points over long paragraphs.");
-  if (mu.escalate>0.2) prefs.push("Bias toward synchronous contact for blockers.");
-  return ["You are the user's digital twin. Write as they would.","Honor these stable preferences:",...prefs,"Keep answers precise and actionable."].join(" ");
+  if (mu.direct  > 0.1) prefs.push("Be direct.");       else if (mu.direct  < -0.1) prefs.push("Be diplomatic.");
+  if (mu.formal  > 0.1) prefs.push("Use a formal register."); else if (mu.formal < -0.1) prefs.push("Use a concise professional tone.");
+  if (mu.verbose > 0.1) prefs.push("Offer fuller explanations."); else if (mu.verbose < -0.1) prefs.push("Be concise; avoid filler.");
+  if (mu.bullets > 0.1) prefs.push("Prefer bullet points over long paragraphs.");
+  if (mu.escalate> 0.1) prefs.push("Bias toward synchronous contact for blockers.");
+  return [
+    "You are the user's digital twin. Write as they would.",
+    "Honor these stable preferences:", ...prefs,
+    "Keep answers precise and actionable."
+  ].join(" ");
 }
 
-// UI elements
+// ---------- UI wiring ----------
 const qtext=document.getElementById("qtext"), optsDiv=document.getElementById("opts");
 const fill=document.getElementById("fill"), pct=document.getElementById("pct");
 const phase=document.getElementById("phase"), askedpill=document.getElementById("askedpill");
@@ -203,58 +220,97 @@ const promptTA=document.getElementById("prompt"), draftPre=document.getElementBy
 const candidatesPre=document.getElementById("candidates");
 
 function renderNext(){
-  const scn=SCENARIOS.sort((a,b)=>scoreScenario(b)-scoreScenario(a))[0];
-  qtext.innerHTML=`<strong>${scn.text}</strong>`;
-  optsDiv.innerHTML="";
+  // Prefer unseen scenarios; reset when all asked once
+  let pool = SCENARIOS.filter(s=>!askedSet.has(s.id));
+  if (pool.length===0){ askedSet.clear(); pool = SCENARIOS.slice(); }
+
+  // Highest variance on probed axes first
+  pool.sort((a,b)=>scoreScenario(b)-scoreScenario(a));
+  const scn = pool[0];
+  askedSet.add(scn.id);
+
+  qtext.innerHTML = `<strong>${scn.text}</strong>`;
+  optsDiv.innerHTML = "";
+
   scn.options.forEach(opt=>{
     const div=document.createElement("div"); div.className="opt";
-const txt = scn.kind === "text"
-  ? draftFromDeltas(scn.id, opt.deltas, opt.id)   // <-- pass opt.id
-  : draftFromDeltas("choose_channel", opt.deltas, opt.id);
+    const txt = scn.kind==="text"
+      ? draftFromDeltas(scn.id, opt.deltas, opt.id)
+      : draftFromDeltas("choose_channel", opt.deltas, opt.id);
     div.innerHTML = `<h4>${opt.id}</h4><p>${txt.replace(/\n/g,"<br/>")}</p>`;
     const btn=document.createElement("button"); btn.textContent="Choose this";
     btn.onclick=()=>{
-      asked++; updatePosterior(opt.deltas);
-      const p=progressPct(); fill.style.width=p+"%"; pct.textContent=p+"%";
-      phase.textContent=(p>=80||asked>=targetQuestions)?"Refinement":"Calibration";
+      asked++;
+      updatePosterior(opt.deltas);
+      const p=progressPct();
+      fill.style.width=p+"%"; pct.textContent=p+"%";
+      phase.textContent=(p>=80 || asked>=targetQuestions) ? "Refinement" : "Calibration";
       askedpill.textContent=`${asked}/${targetQuestions}`;
       promptTA.value=buildSoftPrompt(); // live update
+      saveLocal();
       renderNext();
     };
     div.appendChild(btn);
     optsDiv.appendChild(div);
   });
 }
+
 document.getElementById("skip").onclick=()=>{
-  asked++; for (const k of AXES) var_[k]=Math.max(0.05,var_[k]*0.93);
+  asked++;
+  for (const k of AXES) var_[k]=Math.max(0.05,var_[k]*0.93);
   const p=progressPct(); fill.style.width=p+"%"; pct.textContent=p+"%";
-  phase.textContent=(p>=80||asked>=targetQuestions)?"Refinement":"Calibration";
+  phase.textContent=(p>=80 || asked>=targetQuestions)?"Refinement":"Calibration";
   askedpill.textContent=`${asked}/${targetQuestions}`;
-  promptTA.value=buildSoftPrompt(); renderNext();
-};
-document.getElementById("save").onclick=()=>{
-  const data={version:"v1", axes:{mu,var_}, soft_prompt:buildSoftPrompt(), asked};
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
-  const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="twin_profile.json"; a.click(); URL.revokeObjectURL(url);
-};
-document.getElementById("reset").onclick=()=>{
-  mu={direct:0,formal:0,verbose:0,bullets:0,escalate:0};
-  var_={direct:1,formal:1,verbose:1,bullets:1,escalate:1}; asked=0;
-  const p=progressPct(); fill.style.width=p+"%"; pct.textContent=p+"%";
-  phase.textContent="Calibration"; askedpill.textContent=`0/${targetQuestions}`;
-  promptTA.value=buildSoftPrompt(); draftPre.textContent=""; candidatesPre.textContent="";
+  promptTA.value=buildSoftPrompt();
+  saveLocal();
   renderNext();
 };
 
-// Init
+document.getElementById("save").onclick=()=>{
+  const data={version:"v1", axes:{mu,var_}, soft_prompt:buildSoftPrompt(), asked};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download="twin_profile.json"; a.click();
+  URL.revokeObjectURL(url);
+};
+
+document.getElementById("reset").onclick=()=>{
+  mu={direct:0,formal:0,verbose:0,bullets:0,escalate:0};
+  var_={direct:1,formal:1,verbose:1,bullets:1,escalate:1};
+  asked=0; askedSet.clear();
+  const p=progressPct(); fill.style.width=p+"%"; pct.textContent=p+"%";
+  phase.textContent="Calibration"; askedpill.textContent=`0/${targetQuestions}`;
+  promptTA.value=buildSoftPrompt(); draftPre.textContent=""; candidatesPre.textContent="";
+  localStorage.removeItem("twin_profile");
+  renderNext();
+};
+
+// ---------- Persistence ----------
+function saveLocal(){
+  const data={axes:{mu,var_}, asked, soft_prompt:buildSoftPrompt()};
+  localStorage.setItem("twin_profile", JSON.stringify(data));
+}
 (function init(){
+  // Restore calibration
+  const saved = localStorage.getItem("twin_profile");
+  if (saved){
+    try{ const j=JSON.parse(saved); mu=j.axes.mu; var_=j.axes.var_; asked=j.asked||0; }catch{}
+  }
+  // Restore API prefs
+  const k=localStorage.getItem("openai_key"); if(k) document.getElementById("apikey").value=k;
+  const o=localStorage.getItem("openai_org"); if(o) document.getElementById("org").value=o;
+  const m=localStorage.getItem("openai_model"); if(m) document.getElementById("model").value=m;
+
   promptTA.value=buildSoftPrompt();
   const p=progressPct(); fill.style.width=p+"%"; pct.textContent=p+"%";
-  askedpill.textContent=`${asked}/${targetQuestions}`; renderNext();
+  phase.textContent=(p>=80 || asked>=targetQuestions)?"Refinement":"Calibration";
+  askedpill.textContent=`${asked}/${targetQuestions}`;
+  renderNext();
 })();
 
-// --- OpenAI Test (browser-side, no key storage) ---
+// ---------- OpenAI test (browser-side) ----------
 let abortCtl=null; document.getElementById("stop").onclick=()=>{ if(abortCtl) abortCtl.abort(); };
+
 function systemPrompt(){ return "You are a helpful assistant. Answer accurately and succinctly."; }
 
 // Simple candidate scorer using learned axes (heuristics)
@@ -265,9 +321,9 @@ function scoreCandidate(text){
   const contractions=(text.match(/\b(I\'m|we\'re|it\'s|don\'t|can\'t|won\'t|shouldn\'t|isn\'t)\b/gi)||[]).length;
   const formalWords=(text.match(/\b(regards|sincerely|please confirm|per our|hereby)\b/gi)||[]).length;
   let score=0;
-  score += (mu.direct||0)*(10-hedges);                 // fewer hedges if direct
-  score += (mu.formal||0)*(formalWords - contractions); // more formal words, fewer contractions
-  const target = mu.verbose>0.2 ? 160 : (mu.verbose<-0.2 ? 90 : 120);
+  score += (mu.direct||0)*(10-hedges);
+  score += (mu.formal||0)*(formalWords - contractions);
+  const target = mu.verbose>0.1 ? 160 : (mu.verbose<-0.1 ? 90 : 120);
   score += -Math.abs(words-target)/10;
   score += (mu.bullets||0)*(bullets*1.5);
   return score;
@@ -297,6 +353,12 @@ document.getElementById("complete").onclick=async ()=>{
   const task=(document.getElementById("task").value||"").trim();
   if (!key){ alert("Enter an OpenAI API key."); return; }
   if (!task){ alert("Enter a task/prompt to test."); return; }
+
+  // Persist API prefs for convenience
+  localStorage.setItem("openai_key", key);
+  localStorage.setItem("openai_org", org);
+  localStorage.setItem("openai_model", model);
+
   draftPre.textContent="Generating…"; candidatesPre.textContent="";
   const softPrompt=promptTA.value.trim();
   const messages=[
@@ -308,7 +370,9 @@ document.getElementById("complete").onclick=async ()=>{
     const scored=outs.map((txt,i)=>({i,txt,score:scoreCandidate(txt)})).sort((a,b)=>b.score-a.score);
     draftPre.textContent=scored[0]?.txt || "(no output)";
     candidatesPre.textContent=scored.map(o=>`[${o.score.toFixed(2)}] Candidate ${o.i+1}:\n${o.txt}\n`).join("\n---\n");
-  }catch(e){ draftPre.textContent=String(e); }
+  }catch(e){
+    draftPre.textContent=String(e);
+  }
 };
 </script>
 </body>
