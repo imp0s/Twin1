@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Twin Calibrator + OpenAI Tester</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Twin Calibrator + OpenAI Tester (Realistic)</title>
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:24px;line-height:1.35}
   .card{border:1px solid #ddd;border-radius:10px;padding:16px;margin:12px 0}
@@ -15,6 +15,9 @@
   small.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#555}
   textarea,input,select{border:1px solid #ccc;border-radius:8px;padding:8px}
   pre{white-space:pre-wrap;background:#fafafa;border:1px solid #eee;border-radius:8px;padding:8px}
+  .opt{border:1px solid #cbd5e1;border-radius:10px;padding:10px;flex:1;min-width:260px}
+  .opt h4{margin:.2rem 0}
+  .opt p{margin:.2rem 0}
   .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#f1f5f9;border:1px solid #e2e8f0;margin-right:6px}
 </style>
 </head>
@@ -43,7 +46,7 @@
 
 <div class="card">
   <strong>Your learned pre-prompt (text)</strong>
-  <div style="margin:6px 0;"><small class="mono">This “soft prompt” is prepended to your requests.</small></div>
+  <div style="margin:6px 0;"><small class="mono">This “soft prompt” is prepended to your requests and updates after each choice.</small></div>
   <textarea id="prompt" rows="6" style="width:100%;margin-top:8px;"></textarea>
   <div class="row" style="margin-top:8px;">
     <button id="save">Export JSON</button>
@@ -55,6 +58,7 @@
   <strong>OpenAI test (optional)</strong>
   <div class="row" style="margin-top:8px;">
     <input id="apikey" placeholder="OpenAI API key (sk-...)" style="flex:1;min-width:260px">
+    <input id="org" placeholder="Organization ID (optional)" style="min-width:220px">
     <select id="model">
       <option value="gpt-4o-mini">gpt-4o-mini</option>
       <option value="gpt-4o">gpt-4o</option>
@@ -82,84 +86,120 @@
     <summary>Show all candidates & scores</summary>
     <pre id="candidates"></pre>
   </details>
-  <small class="mono">Warning: Browser calls expose your key to this page. Use a temporary key for testing.</small>
+  <small class="mono">Security note: This page calls OpenAI from your browser. Your key is only used in-memory on this page and is not stored.</small>
 </div>
 
 <script>
-// --- Calibration model (toy but effective) ---
+// --- Calibration model (axes + posterior) ---
 const AXES = ["direct","formal","verbose","bullets","escalate"];
-let mu = {direct:0, formal:0, verbose:0, bullets:0, escalate:0};  // means
-let var_ = {direct:1, formal:1, verbose:1, bullets:1, escalate:1}; // diag var
+let mu  = {direct:0, formal:0, verbose:0, bullets:0, escalate:0};
+let var_= {direct:1, formal:1, verbose:1, bullets:1, escalate:1};
 let asked = 0, targetQuestions = 10;
 
-// Scenario catalog (A/B or multi-arm), each probes certain axes
+// Realistic option text factories (tiny templates)
+function draftFromDeltas(ctx, d){
+  const toneDirect = d.direct>0.2 ? "Direct" : (d.direct<-0.2 ? "Diplomatic" : "Neutral");
+  const formality  = d.formal>0.2 ? "Formal"  : (d.formal<-0.2 ? "Casual pro" : "Neutral");
+  const bullets    = d.bullets>0.2;
+  const verbose    = d.verbose>0.2;
+  const signoff    = formality==="Formal" ? "Regards," : "Thanks,";
+  const name       = "—M";
+
+  const base = {
+    ext_status: {
+      subject: "Update on delivery timing",
+      A: bullets
+         ? `- Shipment delayed by 2 days.\n- Cause: carrier backlog.\n- New ETA: Thursday.\nPlease confirm receipt and any impact on your side.\n${signoff}\n${name}`
+         : `${toneDirect==="Direct"?"Quick update: ":""}The shipment is delayed by two days due to carrier backlog. New ETA is Thursday. Please confirm receipt and any downstream impact.\n\n${signoff}\n${name}`,
+      B: `${verbose?"Providing some detail: ":""}We’ve been informed of a two-day delay caused by a carrier backlog; revised ETA is Thursday. Let me know if you need serials/photos. ${signoff}\n${name}`
+    },
+    internal_note: {
+      subject: "Risk summary",
+      A: bullets
+         ? `- Risk: PCB yield variance on batch #42\n- Impact: 1–2d slip if rework needed\n- Mitigation: tighten AOI, add spot QC photos`
+         : `Key risk is PCB yield variance on batch #42. Impact could be a 1–2 day slip if rework is required. Mitigation: tighten AOI and add spot QC photos.`,
+      B: bullets
+         ? `- Observed variance; monitoring\n- If issues persist: rework path\n- Will report next checkpoint`
+         : `We’ve observed some variance and are monitoring. If issues persist we’ll trigger rework. I’ll report again at the next checkpoint.`
+    },
+    negotiation: {
+      subject: "Scope alignment",
+      A: `${formality==="Formal"?"Per our agreement, ":""}we can include item A this sprint, but items B/C would extend the timeline. Suggest trading B for A now, with C in the next cycle. ${toneDirect==="Direct"?"Please confirm by EOD.":""}`,
+      B: `Appreciate the asks. We could take item A now; B/C would push timing. Open to options—happy to discuss what’s most critical first.`
+    },
+    followup: {
+      subject: "Missed meeting follow-up",
+      A: `${toneDirect==="Direct"?"Missed the slot—":""}Can we lock a 15-min today or tomorrow morning? I’ll send notes upfront to keep it tight.`,
+      B: `Sorry we missed each other. Would you prefer a short call this week or an email summary instead?`
+    }
+  };
+
+  // action choice phrasing
+  if (ctx==="choose_channel") {
+    if (d.escalate>0.3) return "Call now to unblock, then send a 3-bullet summary.";
+    if (d.direct>0.3)   return "Teams message now to align, follow with 15-min call if needed.";
+    return "Email today with summary and proposed next step.";
+  }
+
+  const s = base[ctx];
+  if (!s) return "—";
+  // choose A/B variant deterministically
+  return s.A ?? s.B;
+}
+
+// Scenarios: each probes axes; options carry deltas and render realistic text
 const SCENARIOS = [
-  { id:"ext_status", text:"External status update about a 2-day delay.",
-    kind:"text",
-    options:[ {id:"A", deltas:{direct:+0.6, formal:+0.3, verbose:-0.4, bullets:+0.5}},
-              {id:"B", deltas:{direct:-0.3, formal:-0.2, verbose:+0.5, bullets:-0.4}} ],
-    weights:{direct:0.9, bullets:0.7}},
-  { id:"choose_channel", text:"Response to unexpected blocker from a partner.",
-    kind:"action",
-    options:[ {id:"Call now", deltas:{direct:+0.5, escalate:+0.5}},
-              {id:"Email today", deltas:{formal:+0.4, verbose:+0.2}},
-              {id:"Teams msg now", deltas:{direct:+0.3}} ],
-    weights:{escalate:0.8, direct:0.5}},
-  { id:"internal_note", text:"Internal note summarizing risks.",
-    kind:"text",
-    options:[ {id:"A", deltas:{bullets:+0.6, verbose:-0.3, direct:+0.3}},
-              {id:"B", deltas:{bullets:-0.5, verbose:+0.5, formal:+0.2}} ],
-    weights:{bullets:0.8, verbose:0.6}},
-  { id:"negotiation", text:"Client negotiation over scope creep.",
-    kind:"text",
-    options:[ {id:"A", deltas:{direct:+0.5, formal:+0.4}},
-              {id:"B", deltas:{direct:-0.4, formal:-0.1}} ],
-    weights:{direct:0.7, formal:0.7}},
-  { id:"followup", text:"Follow-up after a missed meeting.",
-    kind:"text",
-    options:[ {id:"A", deltas:{direct:+0.2, verbose:-0.4}},
-              {id:"B", deltas:{direct:-0.2, verbose:+0.4}} ],
-    weights:{verbose:0.7}}
+  { id:"ext_status", text:"External status update about a 2-day delay.", kind:"text",
+    options:[
+      {id:"Option A", deltas:{direct:+0.6, formal:+0.3, verbose:-0.3, bullets:+0.6}},
+      {id:"Option B", deltas:{direct:-0.2, formal:-0.1, verbose:+0.4, bullets:-0.4}}
+    ], weights:{direct:0.9, bullets:0.7}
+  },
+  { id:"choose_channel", text:"Response to an unexpected blocker from a partner.", kind:"action",
+    options:[
+      {id:"Call now",        deltas:{direct:+0.4, escalate:+0.6}},
+      {id:"Email today",     deltas:{formal:+0.3, verbose:+0.2}},
+      {id:"Teams message",   deltas:{direct:+0.3}}
+    ], weights:{escalate:0.8, direct:0.5}
+  },
+  { id:"internal_note", text:"Internal note summarizing risks.", kind:"text",
+    options:[
+      {id:"Option A", deltas:{bullets:+0.6, verbose:-0.2, direct:+0.3}},
+      {id:"Option B", deltas:{bullets:-0.4, verbose:+0.5, formal:+0.2}}
+    ], weights:{bullets:0.8, verbose:0.6}
+  },
+  { id:"negotiation", text:"Client negotiation over scope creep.", kind:"text",
+    options:[
+      {id:"Option A", deltas:{direct:+0.5, formal:+0.4}},
+      {id:"Option B", deltas:{direct:-0.4, formal:-0.1}}
+    ], weights:{direct:0.7, formal:0.7}
+  },
+  { id:"followup", text:"Follow-up after a missed meeting.", kind:"text",
+    options:[
+      {id:"Option A", deltas:{direct:+0.2, verbose:-0.3}},
+      {id:"Option B", deltas:{direct:-0.2, verbose:+0.3}}
+    ], weights:{verbose:0.7}
+  }
 ];
 
-// Info-gain proxy: prefer scenarios with high remaining variance on their axes
-function scoreScenario(s){
-  let v=0; for (const k in s.weights) v += s.weights[k] * (var_[k]??0);
-  return v + Math.random()*0.01;
-}
-// Posterior update (simple EWMA toward chosen deltas; shrink variance)
-function updatePosterior(d){
-  for (const k of AXES){
-    const delta = d[k]??0;
-    mu[k] = mu[k] + 0.35*delta;           // learning rate
-    var_[k] = Math.max(0.05, var_[k]*0.85);
-  }
-}
-// Progress = entropy reduction proxy using diag cov
-function progressPct(){
-  const H0 = AXES.length * Math.log(2); // baseline proxy
-  const Ht = AXES.reduce((a,k)=>a+Math.log(1+var_[k]),0);
-  return Math.max(0, Math.min(100, Math.round(100*(1 - Ht/H0))));
-}
-// Build readable text soft-prompt from mu
+// Info-gain proxy
+function scoreScenario(s){ let v=0; for (const k in s.weights) v += s.weights[k]*(var_[k]??0); return v+Math.random()*0.01; }
+// Posterior update
+function updatePosterior(d){ for (const k of AXES){ const delta=d[k]??0; mu[k]+=0.35*delta; var_[k]=Math.max(0.05,var_[k]*0.85);} }
+// Progress
+function progressPct(){ const H0=AXES.length*Math.log(2); const Ht=AXES.reduce((a,k)=>a+Math.log(1+var_[k]),0); return Math.max(0,Math.min(100,Math.round(100*(1-Ht/H0)))); }
+// Build soft prompt text (updates every click)
 function buildSoftPrompt(){
   const prefs=[];
-  if (mu.direct>0.2) prefs.push("Be direct.");
-  else if (mu.direct<-0.2) prefs.push("Be diplomatic.");
-  if (mu.formal>0.2) prefs.push("Use a formal register.");
-  else if (mu.formal<-0.2) prefs.push("Use a concise professional tone.");
-  if (mu.verbose>0.2) prefs.push("Offer fuller explanations.");
-  else if (mu.verbose<-0.2) prefs.push("Be concise; avoid filler.");
+  if (mu.direct>0.2) prefs.push("Be direct."); else if (mu.direct<-0.2) prefs.push("Be diplomatic.");
+  if (mu.formal>0.2) prefs.push("Use a formal register."); else if (mu.formal<-0.2) prefs.push("Use a concise professional tone.");
+  if (mu.verbose>0.2) prefs.push("Offer fuller explanations."); else if (mu.verbose<-0.2) prefs.push("Be concise; avoid filler.");
   if (mu.bullets>0.2) prefs.push("Prefer bullet points over long paragraphs.");
   if (mu.escalate>0.2) prefs.push("Bias toward synchronous contact for blockers.");
-  return [
-    "You are the user's digital twin. Write as they would.",
-    "Honor these stable preferences:", ...prefs,
-    "Keep answers precise and actionable."
-  ].join(" ");
+  return ["You are the user's digital twin. Write as they would.","Honor these stable preferences:",...prefs,"Keep answers precise and actionable."].join(" ");
 }
 
-// UI wiring
+// UI elements
 const qtext=document.getElementById("qtext"), optsDiv=document.getElementById("opts");
 const fill=document.getElementById("fill"), pct=document.getElementById("pct");
 const phase=document.getElementById("phase"), askedpill=document.getElementById("askedpill");
@@ -167,147 +207,110 @@ const promptTA=document.getElementById("prompt"), draftPre=document.getElementBy
 const candidatesPre=document.getElementById("candidates");
 
 function renderNext(){
-  const scn = SCENARIOS.sort((a,b)=>scoreScenario(b)-scoreScenario(a))[0];
-  qtext.innerHTML = `<strong>${scn.text}</strong>`;
+  const scn=SCENARIOS.sort((a,b)=>scoreScenario(b)-scoreScenario(a))[0];
+  qtext.innerHTML=`<strong>${scn.text}</strong>`;
   optsDiv.innerHTML="";
   scn.options.forEach(opt=>{
-    const b=document.createElement("button");
-    b.textContent = scn.kind==="text" ? `Choose ${opt.id}` : opt.id;
-    b.onclick=()=>{
-      asked++;
-      updatePosterior(opt.deltas);
-      const p=progressPct();
-      fill.style.width=p+"%"; pct.textContent=p+"%";
-      phase.textContent = (p>=80 || asked>=targetQuestions) ? "Refinement" : "Calibration";
-      askedpill.textContent = `${asked}/${targetQuestions}`;
-      promptTA.value=buildSoftPrompt();
-      saveLocal();
+    const div=document.createElement("div"); div.className="opt";
+    const txt = scn.kind==="text" ? draftFromDeltas(scn.id, opt.deltas) : draftFromDeltas("choose_channel", opt.deltas);
+    div.innerHTML = `<h4>${opt.id}</h4><p>${txt.replace(/\n/g,"<br/>")}</p>`;
+    const btn=document.createElement("button"); btn.textContent="Choose this";
+    btn.onclick=()=>{
+      asked++; updatePosterior(opt.deltas);
+      const p=progressPct(); fill.style.width=p+"%"; pct.textContent=p+"%";
+      phase.textContent=(p>=80||asked>=targetQuestions)?"Refinement":"Calibration";
+      askedpill.textContent=`${asked}/${targetQuestions}`;
+      promptTA.value=buildSoftPrompt(); // live update
       renderNext();
     };
-    optsDiv.appendChild(b);
+    div.appendChild(btn);
+    optsDiv.appendChild(div);
   });
 }
 document.getElementById("skip").onclick=()=>{
-  asked++;
-  for (const k of AXES) var_[k]=Math.max(0.05, var_[k]*0.93);
-  const p=progressPct();
-  fill.style.width=p+"%"; pct.textContent=p+"%";
-  phase.textContent=(p>=80 || asked>=targetQuestions)?"Refinement":"Calibration";
+  asked++; for (const k of AXES) var_[k]=Math.max(0.05,var_[k]*0.93);
+  const p=progressPct(); fill.style.width=p+"%"; pct.textContent=p+"%";
+  phase.textContent=(p>=80||asked>=targetQuestions)?"Refinement":"Calibration";
   askedpill.textContent=`${asked}/${targetQuestions}`;
-  promptTA.value=buildSoftPrompt();
-  saveLocal();
-  renderNext();
+  promptTA.value=buildSoftPrompt(); renderNext();
 };
 document.getElementById("save").onclick=()=>{
   const data={version:"v1", axes:{mu,var_}, soft_prompt:buildSoftPrompt(), asked};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a"); a.href=url; a.download="twin_profile.json"; a.click();
-  URL.revokeObjectURL(url);
+  const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="twin_profile.json"; a.click(); URL.revokeObjectURL(url);
 };
 document.getElementById("reset").onclick=()=>{
   mu={direct:0,formal:0,verbose:0,bullets:0,escalate:0};
-  var_={direct:1,formal:1,verbose:1,bullets:1,escalate:1};
-  asked=0; localStorage.removeItem("twin_profile");
+  var_={direct:1,formal:1,verbose:1,bullets:1,escalate:1}; asked=0;
   const p=progressPct(); fill.style.width=p+"%"; pct.textContent=p+"%";
   phase.textContent="Calibration"; askedpill.textContent=`0/${targetQuestions}`;
   promptTA.value=buildSoftPrompt(); draftPre.textContent=""; candidatesPre.textContent="";
   renderNext();
 };
 
-// Persistence
-function saveLocal(){
-  const data={axes:{mu,var_}, asked, soft_prompt:buildSoftPrompt()};
-  localStorage.setItem("twin_profile", JSON.stringify(data));
-}
+// Init
 (function init(){
-  const saved = localStorage.getItem("twin_profile");
-  if (saved){
-    try{ const j=JSON.parse(saved); mu=j.axes.mu; var_=j.axes.var_; asked=j.asked||0; }catch{}
-  }
   promptTA.value=buildSoftPrompt();
   const p=progressPct(); fill.style.width=p+"%"; pct.textContent=p+"%";
-  phase.textContent=(p>=80 || asked>=targetQuestions)?"Refinement":"Calibration";
-  askedpill.textContent=`${asked}/${targetQuestions}`;
-  // restore API key/model if saved
-  const k=localStorage.getItem("openai_key"); if(k) document.getElementById("apikey").value=k;
-  const m=localStorage.getItem("openai_model"); if(m) document.getElementById("model").value=m;
-  renderNext();
+  askedpill.textContent=`${asked}/${targetQuestions}`; renderNext();
 })();
 
-// --- OpenAI Test (browser-side) ---
-let abortCtl=null;
-document.getElementById("stop").onclick=()=>{ if(abortCtl) abortCtl.abort(); };
+// --- OpenAI Test (browser-side, no key storage) ---
+let abortCtl=null; document.getElementById("stop").onclick=()=>{ if(abortCtl) abortCtl.abort(); };
+function systemPrompt(){ return "You are a helpful assistant. Answer accurately and succinctly."; }
 
-function systemPrompt(){
-  return "You are a helpful assistant. Answer accurately and succinctly.";
-}
 // Simple candidate scorer using learned axes (heuristics)
 function scoreCandidate(text){
-  const words = text.trim().split(/\s+/).length;
-  const bullets = (text.match(/(^|\n)\s*[-*•]/g)||[]).length;
-  // proxies
-  const hedges = (text.match(/\b(maybe|perhaps|I think|I believe|might|could|let me know)\b/gi)||[]).length;
-  const contractions = (text.match(/\b(I\'m|we\'re|it\'s|don\'t|can\'t|won\'t|shouldn\'t|isn\'t)\b/gi)||[]).length;
-  const formalWords = (text.match(/\b(regards|sincerely|please confirm|per our|hereby)\b/gi)||[]).length;
-
+  const words=text.trim().split(/\s+/).length;
+  const bullets=(text.match(/(^|\n)\s*[-*•]/g)||[]).length;
+  const hedges=(text.match(/\b(maybe|perhaps|I think|I believe|might|could|let me know)\b/gi)||[]).length;
+  const contractions=(text.match(/\b(I\'m|we\'re|it\'s|don\'t|can\'t|won\'t|shouldn\'t|isn\'t)\b/gi)||[]).length;
+  const formalWords=(text.match(/\b(regards|sincerely|please confirm|per our|hereby)\b/gi)||[]).length;
   let score=0;
-  // direct: more direct = fewer hedges
-  score += (mu.direct||0) * (10 - hedges);
-  // formal: more formal = more formalWords, fewer contractions
-  score += (mu.formal||0) * (formalWords - contractions);
-  // verbose: target length bands
+  score += (mu.direct||0)*(10-hedges);                 // fewer hedges if direct
+  score += (mu.formal||0)*(formalWords - contractions); // more formal words, fewer contractions
   const target = mu.verbose>0.2 ? 160 : (mu.verbose<-0.2 ? 90 : 120);
-  score += -Math.abs(words - target)/10;
-  // bullets preference
-  score += (mu.bullets||0) * (bullets*1.5);
+  score += -Math.abs(words-target)/10;
+  score += (mu.bullets||0)*(bullets*1.5);
   return score;
 }
 
-async function openaiChat(apiKey, model, messages, n, temperature){
-  abortCtl = new AbortController();
-  const r = await fetch("https://api.openai.com/v1/chat/completions", {
-    method:"POST",
-    headers:{ "Content-Type":"application/json", "Authorization":`Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model, temperature: Number(temperature), n: Number(n), messages
-    }),
-    signal: abortCtl.signal
+async function openaiChat(apiKey, org, model, messages, n, temperature){
+  abortCtl=new AbortController();
+  const headers={"Content-Type":"application/json","Authorization":`Bearer ${apiKey}`};
+  if (org && org.trim()) headers["OpenAI-Organization"]=org.trim();
+  const r=await fetch("https://api.openai.com/v1/chat/completions",{
+    method:"POST", headers,
+    body:JSON.stringify({model,temperature:Number(temperature),n:Number(n),messages}),
+    signal:abortCtl.signal
   });
-  if (!r.ok) {
-    const t=await r.text();
-    throw new Error(`OpenAI error ${r.status}: ${t}`);
-  }
-  const j = await r.json();
+  const text=await r.text();
+  if (!r.ok) throw new Error(`OpenAI ${r.status}: ${text}`);
+  const j=JSON.parse(text);
   return j.choices.map(c=>c.message.content.trim());
 }
 
 document.getElementById("complete").onclick=async ()=>{
-  const key = document.getElementById("apikey").value.trim();
-  const model = document.getElementById("model").value;
-  const k = Number(document.getElementById("k").value);
-  const temp = Number(document.getElementById("temp").value);
-  const task = (document.getElementById("task").value||"").trim();
+  const key=document.getElementById("apikey").value.trim();
+  const org=document.getElementById("org").value.trim();
+  const model=document.getElementById("model").value;
+  const k=Number(document.getElementById("k").value);
+  const temp=Number(document.getElementById("temp").value);
+  const task=(document.getElementById("task").value||"").trim();
   if (!key){ alert("Enter an OpenAI API key."); return; }
   if (!task){ alert("Enter a task/prompt to test."); return; }
   draftPre.textContent="Generating…"; candidatesPre.textContent="";
-  localStorage.setItem("openai_key", key);
-  localStorage.setItem("openai_model", model);
-
-  const softPrompt = promptTA.value.trim();
-  const messages = [
+  const softPrompt=promptTA.value.trim();
+  const messages=[
     {role:"system", content: systemPrompt()},
     {role:"user", content: softPrompt + "\n\nTask:\n" + task}
   ];
   try{
-    const outs = await openaiChat(key, model, messages, k, temp);
-    const scored = outs.map((txt,i)=>({i, txt, score: scoreCandidate(txt)}))
-                       .sort((a,b)=>b.score-a.score);
-    draftPre.textContent = scored[0]?.txt || "(no output)";
-    candidatesPre.textContent = scored.map(o=>`[${o.score.toFixed(2)}] Candidate ${o.i+1}:\n${o.txt}\n`).join("\n---\n");
-  }catch(e){
-    draftPre.textContent = String(e);
-  }
+    const outs=await openaiChat(key, org, model, messages, k, temp);
+    const scored=outs.map((txt,i)=>({i,txt,score:scoreCandidate(txt)})).sort((a,b)=>b.score-a.score);
+    draftPre.textContent=scored[0]?.txt || "(no output)";
+    candidatesPre.textContent=scored.map(o=>`[${o.score.toFixed(2)}] Candidate ${o.i+1}:\n${o.txt}\n`).join("\n---\n");
+  }catch(e){ draftPre.textContent=String(e); }
 };
 </script>
 </body>
