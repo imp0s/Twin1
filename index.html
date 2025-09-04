@@ -1,379 +1,116 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Twin Calibrator + OpenAI Tester (gpt-5 default)</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Persona Trainer PWA</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#ffffff" />
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:24px;line-height:1.35}
-  .card{border:1px solid #ddd;border-radius:10px;padding:16px;margin:12px 0}
-  .row{display:flex;gap:12px;flex-wrap:wrap}
-  button{padding:10px 14px;border-radius:8px;border:1px solid #888;background:#fff;cursor:pointer}
-  .primary{background:#111;color:#fff;border-color:#111}
-  .bar{height:10px;background:#eee;border-radius:6px;overflow:hidden}
-  .fill{height:100%;background:#3a8;width:0%}
-  small.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#555}
-  textarea,input,select{border:1px solid #ccc;border-radius:8px;padding:8px}
-  pre{white-space:pre-wrap;background:#fafafa;border:1px solid #eee;border-radius:8px;padding:8px}
-  .opt{border:1px solid #cbd5e1;border-radius:10px;padding:10px;flex:1;min-width:260px}
-  .opt h4{margin:.2rem 0}
-  .opt p{margin:.2rem 0}
-  .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#f1f5f9;border:1px solid #e2e8f0;margin-right:6px}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:20px;line-height:1.4}
+section{margin-bottom:24px}
+button{padding:6px 12px;margin:4px;border-radius:6px;border:1px solid #888;background:#fff;cursor:pointer}
+.answer{display:block;margin:6px 0;padding:8px;border:1px solid #ccc;border-radius:8px;cursor:pointer}
+.answer.persona{border-color:#0a0;background:#e0ffe0}
+pre{background:#f9f9f9;padding:8px;border:1px solid #eee;border-radius:6px;white-space:pre-wrap}
 </style>
 </head>
 <body>
-<h2>Personal Twin — Calibration & Test</h2>
-
-<div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center;">
-    <div>
-      <strong>Progress</strong> <span id="phase">Calibration</span>
-      <span class="pill" id="askedpill">0/10</span>
-    </div>
-    <div><span id="pct">0%</span></div>
-  </div>
-  <div class="bar"><div id="fill" class="fill"></div></div>
-  <small class="mono">Reach ≥80% to enter Refinement mode.</small>
-</div>
-
-<div id="qcard" class="card">
-  <div id="qtext"><strong>Question will appear here…</strong></div>
-  <div id="opts" class="row" style="margin-top:12px;"></div>
-  <div style="margin-top:12px;">
-    <button id="skip">Neither fits me</button>
-  </div>
-</div>
-
-<div class="card">
-  <strong>Your learned pre-prompt (text)</strong>
-  <div style="margin:6px 0;"><small class="mono">This “soft prompt” is prepended to your requests and updates after each choice.</small></div>
-  <textarea id="prompt" rows="6" style="width:100%;margin-top:8px;"></textarea>
-  <div class="row" style="margin-top:8px;">
-    <button id="save">Export JSON</button>
-    <button id="reset">Reset Calibration</button>
-  </div>
-</div>
-
-<div class="card">
-  <strong>OpenAI test (optional)</strong>
-  <div class="row" style="margin-top:8px;">
-    <input id="apikey" placeholder="OpenAI API key (sk-...)" style="flex:1;min-width:260px">
-    <input id="org" placeholder="Organization ID (optional)" style="min-width:220px">
-    <select id="model" title="Model">
-      <option value="gpt-5" selected>gpt-5</option>
-      <option value="gpt-4o-mini">gpt-4o-mini</option>
-      <option value="gpt-4o">gpt-4o</option>
-      <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
-    </select>
-    <label>k
-      <select id="k"><option>1</option><option selected>3</option><option>5</option></select>
-    </label>
-    <label>Temp
-      <select id="temp"><option>0.2</option><option selected>0.7</option><option>1.0</option></select>
-    </label>
-  </div>
-  <div class="row" style="margin-top:8px;">
-    <textarea id="task" rows="3" placeholder="e.g., Draft a polite status update about a 2-day delay for an external supplier…" style="flex:1;width:100%"></textarea>
-  </div>
-  <div class="row" style="margin-top:8px;">
-    <button id="complete" class="primary">Generate with OpenAI</button>
-    <button id="stop">Stop</button>
-  </div>
-  <div style="margin-top:8px;">
-    <strong>Best draft (after client-side rerank):</strong>
-    <pre id="draft"></pre>
-  </div>
-  <details style="margin-top:8px;">
-    <summary>Show all candidates & scores</summary>
-    <pre id="candidates"></pre>
-  </details>
-  <small class="mono">Keys and preferences are stored in your browser’s localStorage for convenience. Clear storage to remove.</small>
-</div>
-
+<h1>Persona Trainer</h1>
+<section>
+<label>OpenAI API key <input id="apikey" style="width:260px"></label>
+<button id="saveKey">Save</button>
+<button id="clearStorage">Clear Storage</button>
+</section>
+<section>
+<h2>Guidance</h2>
+<textarea id="guidance" rows="3" style="width:100%"></textarea><br>
+<button id="addGuidance">Add guidance</button>
+</section>
+<section>
+<h2>Persona</h2>
+<pre id="persona"></pre>
+</section>
+<section>
+<h2>Calibration</h2>
+<div id="qtext">Enter an API key to begin.</div>
+<div id="answers"></div>
+</section>
+<section>
+<h2>Test persona</h2>
+<textarea id="testq" rows="2" style="width:100%" placeholder="Ask something..."></textarea><br>
+<button id="ask">Ask</button>
+<pre id="testa"></pre>
+</section>
 <script>
-// ---------- Calibration model ----------
-const AXES = ["direct","formal","verbose","bullets","escalate"];
-let mu  = {direct:0, formal:0, verbose:0, bullets:0, escalate:0};
-let var_= {direct:1, formal:1, verbose:1, bullets:1, escalate:1};
-let asked = 0, targetQuestions = 10;
-let askedSet = new Set();
-
-// Realistic option text factories (respects variant A/B)
-function draftFromDeltas(ctx, d, variantId) {
-  const toneDirect = d.direct > 0.2 ? "Direct" : (d.direct < -0.2 ? "Diplomatic" : "Neutral");
-  const formality  = d.formal > 0.2 ? "Formal"  : (d.formal < -0.2 ? "Casual pro" : "Neutral");
-  const bullets    = d.bullets > 0.2;
-  const verbose    = d.verbose > 0.2;
-  const signoff    = formality === "Formal" ? "Regards," : "Thanks,";
-  const name       = "—M";
-
-  if (ctx === "choose_channel") {
-    if (d.escalate > 0.3) return "Call now to unblock, then send a 3-bullet summary.";
-    if (d.direct   > 0.3) return "Teams message now to align, follow with a 15-min call if needed.";
-    return "Email today with a concise summary and the next step.";
-  }
-
-  const base = {
-    ext_status: {
-      A: bullets
-         ? `- Shipment delayed by 2 days.\n- Cause: carrier backlog.\n- New ETA: Thursday.\nPlease confirm receipt and any impact on your side.\n${signoff}\n${name}`
-         : `${toneDirect==="Direct"?"Quick update: ":""}The shipment is delayed by two days due to carrier backlog. New ETA is Thursday. Please confirm any downstream impact.\n\n${signoff}\n${name}`,
-      B: `${verbose?"Providing some detail: ":""}We’ve been informed of a two-day delay caused by a carrier backlog; revised ETA is Thursday. Let me know if you need serials/photos. ${signoff}\n${name}`
-    },
-    internal_note: {
-      A: bullets
-         ? `- Risk: PCB yield variance on batch #42\n- Impact: 1–2d slip if rework needed\n- Mitigation: tighten AOI; add spot QC photos`
-         : `Key risk is PCB yield variance on batch #42. Impact could be a 1–2 day slip if rework is required. Mitigation: tighten AOI and add spot QC photos.`,
-      B: bullets
-         ? `- Observed variance; monitoring\n- If issues persist: rework path\n- Will report next checkpoint`
-         : `We’ve observed some variance and are monitoring. If issues persist we’ll trigger rework. I’ll report again at the next checkpoint.`
-    },
-    negotiation: {
-      A: `${formality==="Formal"?"Per our agreement, ":""}we can include item A this sprint, but items B/C would extend the timeline. Suggest trading B for A now, with C in the next cycle. ${toneDirect==="Direct"?"Please confirm by EOD.":""}`,
-      B: `Appreciate the asks. We could take item A now; B/C would push timing. Open to options—happy to discuss what’s most critical first.`
-    },
-    followup: {
-      A: `${toneDirect==="Direct"?"Missed the slot—":""}Can we lock a 15-min today or tomorrow morning? I’ll send notes upfront to keep it tight.`,
-      B: `Sorry we missed each other. Would you prefer a short call this week or an email summary instead?`
-    }
-  };
-
-  const v = (variantId || "").toUpperCase().includes("B") ? "B" : "A";
-  const ctxBlock = base[ctx];
-  return ctxBlock ? (ctxBlock[v] || ctxBlock.A) : "—";
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
 }
-
-// Scenarios catalog (probes axes; options carry deltas and realistic text)
-const SCENARIOS = [
-  { id:"ext_status", text:"External status update about a 2-day delay.", kind:"text",
-    options:[
-      {id:"Option A", deltas:{direct:+0.6, formal:+0.3, verbose:-0.3, bullets:+0.6}},
-      {id:"Option B", deltas:{direct:-0.2, formal:-0.1, verbose:+0.4, bullets:-0.4}}
-    ], weights:{direct:0.9, bullets:0.7}
-  },
-  { id:"choose_channel", text:"Response to an unexpected blocker from a partner.", kind:"action",
-    options:[
-      {id:"Call now",        deltas:{direct:+0.4, escalate:+0.6}},
-      {id:"Email today",     deltas:{formal:+0.3, verbose:+0.2}},
-      {id:"Teams message",   deltas:{direct:+0.3}}
-    ], weights:{escalate:0.8, direct:0.5}
-  },
-  { id:"internal_note", text:"Internal note summarizing risks.", kind:"text",
-    options:[
-      {id:"Option A", deltas:{bullets:+0.6, verbose:-0.2, direct:+0.3}},
-      {id:"Option B", deltas:{bullets:-0.4, verbose:+0.5, formal:+0.2}}
-    ], weights:{bullets:0.8, verbose:0.6}
-  },
-  { id:"negotiation", text:"Client negotiation over scope creep.", kind:"text",
-    options:[
-      {id:"Option A", deltas:{direct:+0.5, formal:+0.4}},
-      {id:"Option B", deltas:{direct:-0.4, formal:-0.1}}
-    ], weights:{direct:0.7, formal:0.7}
-  },
-  { id:"followup", text:"Follow-up after a missed meeting.", kind:"text",
-    options:[
-      {id:"Option A", deltas:{direct:+0.2, verbose:-0.3}},
-      {id:"Option B", deltas:{direct:-0.2, verbose:+0.3}}
-    ], weights:{verbose:0.7}
-  }
-];
-
-// Info-gain proxy
-function scoreScenario(s){
-  let v=0; for (const k in s.weights) v += s.weights[k]*(var_[k]??0);
-  return v + Math.random()*0.01;
+const persona={text:localStorage.getItem('persona')||'You are a helpful assistant.'};
+const apiKeyInput=document.getElementById('apikey');
+apiKeyInput.value=localStorage.getItem('openai_key')||'';
+function saveKey(){localStorage.setItem('openai_key',apiKeyInput.value.trim());}
+document.getElementById('saveKey').onclick=()=>{saveKey();if(!started)nextQuestion();};
+document.getElementById('clearStorage').onclick=()=>{localStorage.clear();location.reload();};
+const personaPre=document.getElementById('persona');
+function updatePersona(){personaPre.textContent=persona.text;localStorage.setItem('persona',persona.text);}updatePersona();
+document.getElementById('addGuidance').onclick=()=>{const g=document.getElementById('guidance').value.trim();if(!g)return;persona.text+='\n'+g;document.getElementById('guidance').value='';updatePersona();};
+let currentQA=null;let started=false;
+async function openaiChat(messages){
+  const key=localStorage.getItem('openai_key');
+  if(!key) throw new Error('Missing API key');
+  const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:'gpt-4o-mini',temperature:0.7,messages})});
+  const t=await r.text();
+  if(!r.ok) throw new Error(t);
+  const j=JSON.parse(t);
+  return j.choices.map(c=>c.message.content);
 }
-// Posterior update (stronger learning)
-function updatePosterior(d){
-  for (const k of AXES){
-    const delta = d[k] ?? 0;
-    mu[k]  = mu[k] + 0.55 * delta;           // increased learning rate
-    var_[k]= Math.max(0.05, var_[k] * 0.85); // shrink uncertainty
-  }
-}
-// Progress = entropy reduction proxy using diag cov
-function progressPct(){
-  const H0 = AXES.length * Math.log(2);
-  const Ht = AXES.reduce((a,k)=>a+Math.log(1+var_[k]),0);
-  return Math.max(0, Math.min(100, Math.round(100*(1 - Ht/H0))));
-}
-// Build soft prompt (lower thresholds to reflect change sooner)
-function buildSoftPrompt(){
-  const prefs=[];
-  if (mu.direct  > 0.1) prefs.push("Be direct.");       else if (mu.direct  < -0.1) prefs.push("Be diplomatic.");
-  if (mu.formal  > 0.1) prefs.push("Use a formal register."); else if (mu.formal < -0.1) prefs.push("Use a concise professional tone.");
-  if (mu.verbose > 0.1) prefs.push("Offer fuller explanations."); else if (mu.verbose < -0.1) prefs.push("Be concise; avoid filler.");
-  if (mu.bullets > 0.1) prefs.push("Prefer bullet points over long paragraphs.");
-  if (mu.escalate> 0.1) prefs.push("Bias toward synchronous contact for blockers.");
-  return [
-    "You are the user's digital twin. Write as they would.",
-    "Honor these stable preferences:", ...prefs,
-    "Keep answers precise and actionable."
-  ].join(" ");
-}
-
-// ---------- UI wiring ----------
-const qtext=document.getElementById("qtext"), optsDiv=document.getElementById("opts");
-const fill=document.getElementById("fill"), pct=document.getElementById("pct");
-const phase=document.getElementById("phase"), askedpill=document.getElementById("askedpill");
-const promptTA=document.getElementById("prompt"), draftPre=document.getElementById("draft");
-const candidatesPre=document.getElementById("candidates");
-
-function renderNext(){
-  // Prefer unseen scenarios; reset when all asked once
-  let pool = SCENARIOS.filter(s=>!askedSet.has(s.id));
-  if (pool.length===0){ askedSet.clear(); pool = SCENARIOS.slice(); }
-
-  // Highest variance on probed axes first
-  pool.sort((a,b)=>scoreScenario(b)-scoreScenario(a));
-  const scn = pool[0];
-  askedSet.add(scn.id);
-
-  qtext.innerHTML = `<strong>${scn.text}</strong>`;
-  optsDiv.innerHTML = "";
-
-  scn.options.forEach(opt=>{
-    const div=document.createElement("div"); div.className="opt";
-    const txt = scn.kind==="text"
-      ? draftFromDeltas(scn.id, opt.deltas, opt.id)
-      : draftFromDeltas("choose_channel", opt.deltas, opt.id);
-    div.innerHTML = `<h4>${opt.id}</h4><p>${txt.replace(/\n/g,"<br/>")}</p>`;
-    const btn=document.createElement("button"); btn.textContent="Choose this";
-    btn.onclick=()=>{
-      asked++;
-      updatePosterior(opt.deltas);
-      const p=progressPct();
-      fill.style.width=p+"%"; pct.textContent=p+"%";
-      phase.textContent=(p>=80 || asked>=targetQuestions) ? "Refinement" : "Calibration";
-      askedpill.textContent=`${asked}/${targetQuestions}`;
-      promptTA.value=buildSoftPrompt(); // live update
-      saveLocal();
-      renderNext();
-    };
-    div.appendChild(btn);
-    optsDiv.appendChild(div);
-  });
-}
-
-document.getElementById("skip").onclick=()=>{
-  asked++;
-  for (const k of AXES) var_[k]=Math.max(0.05,var_[k]*0.93);
-  const p=progressPct(); fill.style.width=p+"%"; pct.textContent=p+"%";
-  phase.textContent=(p>=80 || asked>=targetQuestions)?"Refinement":"Calibration";
-  askedpill.textContent=`${asked}/${targetQuestions}`;
-  promptTA.value=buildSoftPrompt();
-  saveLocal();
-  renderNext();
-};
-
-document.getElementById("save").onclick=()=>{
-  const data={version:"v1", axes:{mu,var_}, soft_prompt:buildSoftPrompt(), asked};
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a"); a.href=url; a.download="twin_profile.json"; a.click();
-  URL.revokeObjectURL(url);
-};
-
-document.getElementById("reset").onclick=()=>{
-  mu={direct:0,formal:0,verbose:0,bullets:0,escalate:0};
-  var_={direct:1,formal:1,verbose:1,bullets:1,escalate:1};
-  asked=0; askedSet.clear();
-  const p=progressPct(); fill.style.width=p+"%"; pct.textContent=p+"%";
-  phase.textContent="Calibration"; askedpill.textContent=`0/${targetQuestions}`;
-  promptTA.value=buildSoftPrompt(); draftPre.textContent=""; candidatesPre.textContent="";
-  localStorage.removeItem("twin_profile");
-  renderNext();
-};
-
-// ---------- Persistence ----------
-function saveLocal(){
-  const data={axes:{mu,var_}, asked, soft_prompt:buildSoftPrompt()};
-  localStorage.setItem("twin_profile", JSON.stringify(data));
-}
-(function init(){
-  // Restore calibration
-  const saved = localStorage.getItem("twin_profile");
-  if (saved){
-    try{ const j=JSON.parse(saved); mu=j.axes.mu; var_=j.axes.var_; asked=j.asked||0; }catch{}
-  }
-  // Restore API prefs
-  const k=localStorage.getItem("openai_key"); if(k) document.getElementById("apikey").value=k;
-  const o=localStorage.getItem("openai_org"); if(o) document.getElementById("org").value=o;
-  const m=localStorage.getItem("openai_model"); if(m) document.getElementById("model").value=m;
-
-  promptTA.value=buildSoftPrompt();
-  const p=progressPct(); fill.style.width=p+"%"; pct.textContent=p+"%";
-  phase.textContent=(p>=80 || asked>=targetQuestions)?"Refinement":"Calibration";
-  askedpill.textContent=`${asked}/${targetQuestions}`;
-  renderNext();
-})();
-
-// ---------- OpenAI test (browser-side) ----------
-let abortCtl=null; document.getElementById("stop").onclick=()=>{ if(abortCtl) abortCtl.abort(); };
-
-function systemPrompt(){ return "You are a helpful assistant. Answer accurately and succinctly."; }
-
-// Simple candidate scorer using learned axes (heuristics)
-function scoreCandidate(text){
-  const words=text.trim().split(/\s+/).length;
-  const bullets=(text.match(/(^|\n)\s*[-*•]/g)||[]).length;
-  const hedges=(text.match(/\b(maybe|perhaps|I think|I believe|might|could|let me know)\b/gi)||[]).length;
-  const contractions=(text.match(/\b(I\'m|we\'re|it\'s|don\'t|can\'t|won\'t|shouldn\'t|isn\'t)\b/gi)||[]).length;
-  const formalWords=(text.match(/\b(regards|sincerely|please confirm|per our|hereby)\b/gi)||[]).length;
-  let score=0;
-  score += (mu.direct||0)*(10-hedges);
-  score += (mu.formal||0)*(formalWords - contractions);
-  const target = mu.verbose>0.1 ? 160 : (mu.verbose<-0.1 ? 90 : 120);
-  score += -Math.abs(words-target)/10;
-  score += (mu.bullets||0)*(bullets*1.5);
-  return score;
-}
-
-async function openaiChat(apiKey, org, model, messages, n, temperature){
-  abortCtl=new AbortController();
-  const headers={"Content-Type":"application/json","Authorization":`Bearer ${apiKey}`};
-  if (org && org.trim()) headers["OpenAI-Organization"]=org.trim();
-  const r=await fetch("https://api.openai.com/v1/chat/completions",{
-    method:"POST", headers,
-    body:JSON.stringify({model,temperature:Number(temperature),n:Number(n),messages}),
-    signal:abortCtl.signal
-  });
-  const text=await r.text();
-  if (!r.ok) throw new Error(`OpenAI ${r.status}: ${text}`);
-  const j=JSON.parse(text);
-  return j.choices.map(c=>c.message.content.trim());
-}
-
-document.getElementById("complete").onclick=async ()=>{
-  const key=document.getElementById("apikey").value.trim();
-  const org=document.getElementById("org").value.trim();
-  const model=document.getElementById("model").value;
-  const k=Number(document.getElementById("k").value);
-  const temp=Number(document.getElementById("temp").value);
-  const task=(document.getElementById("task").value||"").trim();
-  if (!key){ alert("Enter an OpenAI API key."); return; }
-  if (!task){ alert("Enter a task/prompt to test."); return; }
-
-  // Persist API prefs for convenience
-  localStorage.setItem("openai_key", key);
-  localStorage.setItem("openai_org", org);
-  localStorage.setItem("openai_model", model);
-
-  draftPre.textContent="Generating…"; candidatesPre.textContent="";
-  const softPrompt=promptTA.value.trim();
-  const messages=[
-    {role:"system", content: systemPrompt()},
-    {role:"user", content: softPrompt + "\n\nTask:\n" + task}
-  ];
+async function nextQuestion(){
   try{
-    const outs=await openaiChat(key, org, model, messages, k, temp);
-    const scored=outs.map((txt,i)=>({i,txt,score:scoreCandidate(txt)})).sort((a,b)=>b.score-a.score);
-    draftPre.textContent=scored[0]?.txt || "(no output)";
-    candidatesPre.textContent=scored.map(o=>`[${o.score.toFixed(2)}] Candidate ${o.i+1}:\n${o.txt}\n`).join("\n---\n");
+    started=true;
+    const prompt=`Persona:\n${persona.text}\n\nGenerate one multiple-choice question to refine this persona. Use varied everyday topics. Return JSON {question:string, answers:string[], personaIndex:number} where personaIndex is which answer the persona would pick.`;
+    const [out]=await openaiChat([{role:'user',content:prompt}]);
+    const qa=JSON.parse(out);
+    currentQA=qa;
+    document.getElementById('qtext').textContent=qa.question;
+    const answersDiv=document.getElementById('answers');
+    answersDiv.innerHTML='';
+    qa.answers.forEach((ans,i)=>{
+      const d=document.createElement('div');
+      d.textContent=ans;
+      d.className='answer'+(i===qa.personaIndex?' persona':'');
+      d.onclick=()=>selectAnswer(i);
+      answersDiv.appendChild(d);
+    });
   }catch(e){
-    draftPre.textContent=String(e);
+    document.getElementById('qtext').textContent=e.message;
+  }
+}
+async function selectAnswer(idx){
+  const qa=currentQA;
+  const ans=qa.answers[idx];
+  try{
+    const prompt=`Persona:\n${persona.text}\nQuestion:${qa.question}\nAnswers:${qa.answers.join(' | ')}\nUser selected:${ans}. Update the persona description so it would choose this option. Reply with revised persona text only.`;
+    const [out]=await openaiChat([{role:'user',content:prompt}]);
+    persona.text=out.trim();
+    updatePersona();
+  }catch(e){console.error(e);}
+  nextQuestion();
+}
+document.getElementById('ask').onclick=async()=>{
+  const q=document.getElementById('testq').value.trim();
+  if(!q)return;
+  document.getElementById('testa').textContent='...';
+  try{
+    const msgs=[{role:'system',content:persona.text},{role:'user',content:q}];
+    const [out]=await openaiChat(msgs);
+    document.getElementById('testa').textContent=out.trim();
+  }catch(e){
+    document.getElementById('testa').textContent=e.message;
   }
 };
+if(localStorage.getItem('openai_key')) nextQuestion();
 </script>
 </body>
 </html>
