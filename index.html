@@ -91,7 +91,10 @@ async function nextQuestion(){
     const [out]=await groqChat([{role:'user',content:prompt}]);
     const match=out.match(/\{[\s\S]*\}/);
     if(!match) throw new Error('Model did not return JSON');
-    const qa=JSON.parse(match[0]);
+    const cleaned=match[0]
+      .replace(/\/\/.*$/gm,'')
+      .replace(/\/\*[\s\S]*?\*\//g,'');
+    const qa=JSON.parse(cleaned);
     currentQA=qa;
     document.getElementById('qtext').textContent=qa.question;
     const answersDiv=document.getElementById('answers');
