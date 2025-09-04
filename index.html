@@ -8,159 +8,110 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#ffffff" />
 <style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:20px;line-height:1.4}
-section{margin-bottom:24px}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;line-height:1.4}
+nav{display:flex;gap:4px;background:#eee;padding:8px;position:sticky;top:0;z-index:1}
+nav button{flex:1;padding:6px 0;border:none;background:#ddd;border-radius:6px;cursor:pointer}
+.screen{display:none;padding:10px}
+.screen.active{display:block}
 button{padding:6px 12px;margin:4px;border-radius:6px;border:1px solid #888;background:#fff;cursor:pointer}
+.history{max-height:60vh;overflow-y:auto;border:1px solid #ccc;border-radius:8px;padding:6px;margin-bottom:8px}
+.message{margin:4px 0;padding:6px;border-radius:6px}
+.message.user{background:#e0f0ff}
+.message.bot{background:#f0e0ff}
 .answer{display:block;margin:6px 0;padding:8px;border:1px solid #ccc;border-radius:8px;cursor:pointer}
 .answer.persona{border-color:#0a0;background:#e0ffe0}
+.progress-container{width:100%;height:10px;background:#ddd;border-radius:5px;margin:8px 0}
+.progress-bar{height:100%;width:0%;background:red;border-radius:5px}
+@media(min-width:600px){nav{justify-content:flex-start}nav button{flex:none}}
 pre{background:#f9f9f9;padding:8px;border:1px solid #eee;border-radius:6px;white-space:pre-wrap}
 </style>
 </head>
 <body>
-<h1>Persona Trainer</h1>
-<section>
-<label>Groq API key <input id="apikey" style="width:260px"></label>
-<button id="saveKey">Save</button>
-<button id="clearStorage">Clear Storage</button>
-<button id="refresh">Refresh</button>
+<nav id="tabs">
+<button data-target="main">Chat</button>
+<button data-target="learn">Learn</button>
+<button data-target="persona">Persona</button>
+<button data-target="settings">Settings</button>
+</nav>
+<section id="main" class="screen active">
+<h2>Chat</h2>
+<div id="history" class="history"></div>
+<div id="samples">
+<button class="sample">Should I buy a house?</button>
+<button class="sample">Am I ready for a long term relationship?</button>
+<button class="sample">Should I change careers?</button>
+</div>
+<textarea id="chatInput" rows="2" style="width:100%" placeholder="Ask something..."></textarea><br>
+<button id="send">Send</button>
+<button id="clearChat">Clear</button>
 </section>
-<section>
-<h2>Guidance</h2>
-<textarea id="guidance" rows="3" style="width:100%"></textarea><br>
-<button id="addGuidance">Add guidance</button>
-</section>
-<section>
-<h2>Persona</h2>
-<pre id="persona"></pre>
-<button id="clearPersona">Clear persona</button>
-</section>
-<section>
-<h2>Calibration</h2>
+<section id="learn" class="screen">
+<h2>Learning</h2>
+<div class="progress-container"><div id="progress" class="progress-bar"></div></div>
+<div id="progressText">0%</div>
 <div id="qtext">Enter an API key to begin.</div>
 <div id="answers"></div>
 </section>
-<section>
-<h2>Test persona</h2>
-<textarea id="testq" rows="2" style="width:100%" placeholder="Ask something..."></textarea><br>
-<button id="ask">Ask</button>
-<pre id="testa"></pre>
+<section id="persona" class="screen">
+<h2>Persona</h2>
+<pre id="personaPreview"></pre>
+<textarea id="guidanceBox" rows="3" style="width:100%"></textarea><br>
+<button id="updateGuidance">Update Guidance</button>
+<div>
+<button id="savePersona">Save</button>
+<button id="loadPersona">Load</button>
+<input type="file" id="loadInput" style="display:none">
+<button id="clearPersona">Clear</button>
+</div>
+</section>
+<section id="settings" class="screen">
+<h2>Settings</h2>
+<label>API key <input id="apikey" style="width:260px"></label><br>
+<label>Service URL <input id="service" style="width:260px"></label><br>
+<button id="saveSettings">Save</button>
+<button id="clearStorage">Clear Storage</button>
+<button id="refresh">Refresh</button>
 </section>
 <script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js');
-}
-const categories=[
-  {name:'Interpersonal Style',desc:'how they relate to others'},
-  {name:'Cognitive Preferences',desc:'how they approach problems'},
-  {name:'Emotional Patterns',desc:'how they react to stress and feelings'},
-  {name:'Motivation & Values',desc:'what drives their decisions'},
-  {name:'Self-Discipline & Reliability',desc:'organization and follow-through'},
-  {name:'Adaptability & Risk',desc:'openness to change and risk tolerance'},
-  {name:'Identity & Self-Perception',desc:'self-confidence and awareness'}
-];
-let coverage=JSON.parse(localStorage.getItem('coverage')||'{}');
-function leastCovered(){
-  let min=Infinity;let opts=[];
-  categories.forEach(c=>{const v=coverage[c.name]||0;if(v<min){min=v;opts=[c];}else if(v===min){opts.push(c);}});
-  return opts[Math.floor(Math.random()*opts.length)];
-}
-const persona={text:localStorage.getItem('persona')||'You are the digital twin of a real person.'};
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js');}
+const defaultPersona='You are the digital twin of a real person.';
+let persona={text:localStorage.getItem('persona')||defaultPersona};
 let guidanceText=localStorage.getItem('guidance')||'';
+let coverage=JSON.parse(localStorage.getItem('coverage')||'{}');
+let chatHistory=[];
 const apiKeyInput=document.getElementById('apikey');
-apiKeyInput.value=localStorage.getItem('groq_key')||'';
-function saveKey(){localStorage.setItem('groq_key',apiKeyInput.value.trim());}
-document.getElementById('saveKey').onclick=()=>{saveKey();if(!started)nextQuestion();};
+const serviceInput=document.getElementById('service');
+apiKeyInput.value=localStorage.getItem('api_key')||localStorage.getItem('groq_key')||'';
+serviceInput.value=localStorage.getItem('service')||'https://api.groq.com/openai/v1/chat/completions';
+function saveSettings(){localStorage.setItem('api_key',apiKeyInput.value.trim());localStorage.setItem('service',serviceInput.value.trim());}
+document.getElementById('saveSettings').onclick=()=>{saveSettings();if(!started&&currentScreen==='learn')nextQuestion();};
 document.getElementById('clearStorage').onclick=()=>{localStorage.clear();location.reload();};
-document.getElementById('refresh').onclick=async()=>{
-  if('serviceWorker' in navigator){
-    const regs=await navigator.serviceWorker.getRegistrations();
-    for(const r of regs) await r.unregister();
-  }
-  const keys=await caches.keys();
-  await Promise.all(keys.map(k=>caches.delete(k)));
-  location.reload();
-};
-const personaPre=document.getElementById('persona');
-function renderPersona(){personaPre.textContent=persona.text+(guidanceText?'\n'+guidanceText:'');}
+document.getElementById('refresh').onclick=async()=>{if('serviceWorker' in navigator){const regs=await navigator.serviceWorker.getRegistrations();for(const r of regs)await r.unregister();}const keys=await caches.keys();await Promise.all(keys.map(k=>caches.delete(k)));location.reload();};
+function renderPersona(){const lines=persona.text.split('\n').slice(0,3).join('\n');document.getElementById('personaPreview').textContent=lines+(persona.text.includes('\n')?'\n...':'')+(guidanceText?'\n'+guidanceText:'');document.getElementById('guidanceBox').value=guidanceText;}
 function storePersona(){localStorage.setItem('persona',persona.text);localStorage.setItem('guidance',guidanceText);}
-function updatePersona(){storePersona();renderPersona();}
+function updatePersona(){storePersona();renderPersona();updateProgress();}
 renderPersona();
-document.getElementById('addGuidance').onclick=()=>{const g=document.getElementById('guidance').value.trim();if(!g)return;guidanceText+= (guidanceText?'\n':'')+g;document.getElementById('guidance').value='';updatePersona();};
-document.getElementById('clearPersona').onclick=()=>{persona.text='You are the digital twin of a real person.';localStorage.removeItem('persona');renderPersona();};
-let currentQA=null;let currentCategory=null;let started=false;
-async function groqChat(messages){
-  const key=localStorage.getItem('groq_key');
-  if(!key) throw new Error('Missing API key');
-  const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:'llama-3.1-8b-instant',temperature:0.7,messages})});
-  const t=await r.text();
-  if(!r.ok) throw new Error(t);
-  const j=JSON.parse(t);
-  const contents=(j.choices||[]).map(c=>c.message?.content).filter(Boolean);
-  return contents;
-}
+document.getElementById('updateGuidance').onclick=()=>{guidanceText=document.getElementById('guidanceBox').value.trim();updatePersona();};
+document.getElementById('savePersona').onclick=()=>{const data=JSON.stringify({persona:persona.text,guidance:guidanceText},null,2);const blob=new Blob([data],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='persona.json';a.click();URL.revokeObjectURL(a.href);};
+document.getElementById('loadPersona').onclick=()=>document.getElementById('loadInput').click();
+document.getElementById('loadInput').onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const obj=JSON.parse(ev.target.result);persona.text=obj.persona||defaultPersona;guidanceText=obj.guidance||'';coverage={};localStorage.removeItem('coverage');updatePersona();}catch(err){console.error(err);}};reader.readAsText(file);};
+document.getElementById('clearPersona').onclick=()=>{persona.text=defaultPersona;guidanceText='';coverage={};localStorage.removeItem('coverage');updatePersona();};
+const categories=[{name:'Interpersonal Style',desc:'how they relate to others'},{name:'Cognitive Preferences',desc:'how they approach problems'},{name:'Emotional Patterns',desc:'how they react to stress and feelings'},{name:'Motivation & Values',desc:'what drives their decisions'},{name:'Self-Discipline & Reliability',desc:'organization and follow-through'},{name:'Adaptability & Risk',desc:'openness to change and risk tolerance'},{name:'Identity & Self-Perception',desc:'self-confidence and awareness'}];
+function leastCovered(){let min=Infinity,opts=[];categories.forEach(c=>{const v=coverage[c.name]||0;if(v<min){min=v;opts=[c];}else if(v===min){opts.push(c);}});return opts[Math.floor(Math.random()*opts.length)];}
+let currentQA=null;let currentCategory=null;let started=false;const progressBar=document.getElementById('progress');const progressText=document.getElementById('progressText');
+function updateProgress(){const answered=Object.values(coverage).reduce((a,b)=>a+b,0);const pct=Math.round(100*(1-Math.exp(-answered/5)));progressBar.style.width=pct+'%';progressBar.style.backgroundColor=answered<5?'red':answered<10?'orange':'green';progressText.textContent=pct+'%';}
+updateProgress();
+async function groqChat(messages){const key=localStorage.getItem('api_key')||localStorage.getItem('groq_key');const svc=localStorage.getItem('service')||'https://api.groq.com/openai/v1/chat/completions';if(!key) throw new Error('Missing API key');const r=await fetch(svc,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:'llama-3.1-8b-instant',temperature:0.7,messages})});const t=await r.text();if(!r.ok) throw new Error(t);const j=JSON.parse(t);const contents=(j.choices||[]).map(c=>c.message?.content).filter(Boolean);return contents;}
 function showRetry(target,action){target.innerHTML='';const b=document.createElement('button');b.textContent='Retry';b.onclick=action;target.appendChild(b);}
-async function nextQuestion(){
-  try{
-    started=true;
-    const cat=leastCovered();
-    currentCategory=cat.name;
-    const prompt=`Persona:\n${persona.text}\nGuidance:\n${guidanceText}\n\nGenerate one short, simple multiple-choice question (under 20 words) to refine this persona's ${cat.name} (${cat.desc}). Use a different everyday topic each time. Return JSON {question:string, answers:string[], personaIndex:number} where the question and answers are brief and personaIndex is which answer the persona would choose.`;
-    const [out]=await groqChat([{role:'user',content:prompt}]);
-    const match=out.match(/\{[\s\S]*\}/);
-    if(!match) throw new Error('Model did not return JSON');
-    const cleaned=match[0]
-      .replace(/\/\/.*$/gm,'')
-      .replace(/\/\*[\s\S]*?\*\//g,'');
-    const qa=JSON.parse(cleaned);
-    currentQA=qa;
-    document.getElementById('qtext').textContent=qa.question;
-    const answersDiv=document.getElementById('answers');
-    answersDiv.innerHTML='';
-    qa.answers.forEach((ans,i)=>{
-      const d=document.createElement('div');
-      d.textContent=ans;
-      d.className='answer'+(i===qa.personaIndex?' persona':'');
-      d.onclick=()=>selectAnswer(i);
-      answersDiv.appendChild(d);
-    });
-  }catch(e){
-    document.getElementById('qtext').textContent='';
-    showRetry(document.getElementById('answers'),nextQuestion);
-  }
-}
-async function selectAnswer(idx){
-  const qa=currentQA;
-  const ans=qa.answers[idx];
-  const answersDiv=document.getElementById('answers');
-  try{
-    const prompt=`Existing persona:\n${persona.text}\nGuidance:\n${guidanceText}\nQuestion:${qa.question}\nCategory:${currentCategory}\nAnswers:${qa.answers.join(' | ')}\nUser selected:${ans}. Revise the persona incrementally so it leans toward this option while avoiding assumptions about name, gender, or age. Keep the description brief and general. Reply with the updated persona text only.`;
-    const [out]=await groqChat([{role:'user',content:prompt}]);
-    persona.text=out.trim();
-    updatePersona();
-    coverage[currentCategory]=(coverage[currentCategory]||0)+1;
-    localStorage.setItem('coverage',JSON.stringify(coverage));
-    nextQuestion();
-  }catch(e){
-    showRetry(answersDiv,()=>selectAnswer(idx));
-  }
-}
-async function askQuestion(){
-  const q=document.getElementById('testq').value.trim();
-  if(!q)return;
-  document.getElementById('testa').textContent='...';
-  try{
-    const msgs=[
-      {role:'system',content:`You are the following persona:\n${persona.text}\nGuidance:\n${guidanceText}\nAnswer strictly as this persona. Be concise and give a clear, direct reply in one short sentence.`},
-      {role:'user',content:q}
-    ];
-    const [out]=await groqChat(msgs);
-    document.getElementById('testa').textContent=out.trim();
-  }catch(e){
-    showRetry(document.getElementById('testa'),askQuestion);
-  }
-}
-document.getElementById('ask').onclick=askQuestion;
-if(localStorage.getItem('groq_key')) nextQuestion();
+async function nextQuestion(){try{started=true;const cat=leastCovered();currentCategory=cat.name;const prompt=`Persona:\n${persona.text}\nGuidance:\n${guidanceText}\n\nGenerate one short, simple multiple-choice question (under 20 words) to refine this persona's ${cat.name} (${cat.desc}). Use a different everyday topic each time. Return JSON {question:string, answers:string[], personaIndex:number} where the question and answers are brief and personaIndex is which answer the persona would choose.`;const [out]=await groqChat([{role:'user',content:prompt}]);const match=out.match(/\{[\s\S]*\}/);if(!match) throw new Error('Model did not return JSON');const cleaned=match[0].replace(/\/\/.*$/gm,'').replace(/\/\*[\s\S]*?\*\//g,'');const qa=JSON.parse(cleaned);currentQA=qa;document.getElementById('qtext').textContent=qa.question;const answersDiv=document.getElementById('answers');answersDiv.innerHTML='';qa.answers.forEach((ans,i)=>{const d=document.createElement('div');d.textContent=ans;d.className='answer'+(i===qa.personaIndex?' persona':'');d.onclick=()=>selectAnswer(i);answersDiv.appendChild(d);});}catch(e){document.getElementById('qtext').textContent='';showRetry(document.getElementById('answers'),nextQuestion);}}
+async function selectAnswer(idx){const qa=currentQA;const ans=qa.answers[idx];const answersDiv=document.getElementById('answers');try{const prompt=`Existing persona:\n${persona.text}\nGuidance:\n${guidanceText}\nQuestion:${qa.question}\nCategory:${currentCategory}\nAnswers:${qa.answers.join(' | ')}\nUser selected:${ans}. Revise the persona incrementally so it leans toward this option while avoiding assumptions about name, gender, or age. Keep the description brief and general. Reply with the updated persona text only.`;const [out]=await groqChat([{role:'user',content:prompt}]);persona.text=out.trim();coverage[currentCategory]=(coverage[currentCategory]||0)+1;localStorage.setItem('coverage',JSON.stringify(coverage));updatePersona();nextQuestion();}catch(e){showRetry(answersDiv,()=>selectAnswer(idx));}}
+const chatInput=document.getElementById('chatInput');const historyDiv=document.getElementById('history');
+function renderChat(){historyDiv.innerHTML='';chatHistory.forEach(m=>{const d=document.createElement('div');d.className='message '+(m.role==='user'?'user':'bot');d.textContent=m.content;historyDiv.appendChild(d);});historyDiv.scrollTop=historyDiv.scrollHeight;}
+async function sendChat(){const q=chatInput.value.trim();if(!q)return;chatHistory.push({role:'user',content:q});renderChat();chatInput.value='';try{const msgs=[{role:'system',content:`You are the following persona:\n${persona.text}\nGuidance:\n${guidanceText}\nAnswer strictly as this persona. Be concise and give a clear, direct reply in one short sentence.`},...chatHistory];const [out]=await groqChat(msgs);chatHistory.push({role:'assistant',content:out.trim()});renderChat();}catch(e){chatHistory.push({role:'assistant',content:'Error'});renderChat();}}
+document.getElementById('send').onclick=sendChat;document.getElementById('clearChat').onclick=()=>{chatHistory=[];renderChat();};document.querySelectorAll('.sample').forEach(b=>b.onclick=()=>{chatInput.value=b.textContent;sendChat();});
+let currentScreen='main';
+function showScreen(id){currentScreen=id;document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');if(id==='learn'&&!started&&(localStorage.getItem('api_key')||localStorage.getItem('groq_key')))nextQuestion();}
+document.querySelectorAll('#tabs button').forEach(btn=>{btn.onclick=()=>showScreen(btn.dataset.target);});
 </script>
 </body>
 </html>
