@@ -64,7 +64,8 @@ async function groqChat(messages){
   const t=await r.text();
   if(!r.ok) throw new Error(t);
   const j=JSON.parse(t);
-  return j.choices.map(c=>c.message.content);
+  const choice=j.choices?.[0]??j.choices?.[1];
+  return choice?.message?.content?[choice.message.content]:[];
 }
 async function nextQuestion(){
   try{
