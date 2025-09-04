@@ -64,7 +64,7 @@ function leastCovered(){
   categories.forEach(c=>{const v=coverage[c.name]||0;if(v<min){min=v;opts=[c];}else if(v===min){opts.push(c);}});
   return opts[Math.floor(Math.random()*opts.length)];
 }
-const persona={text:localStorage.getItem('persona')||'You are a helpful assistant.'};
+const persona={text:localStorage.getItem('persona')||'You are the digital twin of a real person.'};
 let guidanceText=localStorage.getItem('guidance')||'';
 const apiKeyInput=document.getElementById('apikey');
 apiKeyInput.value=localStorage.getItem('groq_key')||'';
@@ -86,7 +86,7 @@ function storePersona(){localStorage.setItem('persona',persona.text);localStorag
 function updatePersona(){storePersona();renderPersona();}
 renderPersona();
 document.getElementById('addGuidance').onclick=()=>{const g=document.getElementById('guidance').value.trim();if(!g)return;guidanceText+= (guidanceText?'\n':'')+g;document.getElementById('guidance').value='';updatePersona();};
-document.getElementById('clearPersona').onclick=()=>{persona.text='You are a helpful assistant.';localStorage.removeItem('persona');renderPersona();};
+document.getElementById('clearPersona').onclick=()=>{persona.text='You are the digital twin of a real person.';localStorage.removeItem('persona');renderPersona();};
 let currentQA=null;let currentCategory=null;let started=false;
 async function groqChat(messages){
   const key=localStorage.getItem('groq_key');
@@ -98,6 +98,7 @@ async function groqChat(messages){
   const contents=(j.choices||[]).map(c=>c.message?.content).filter(Boolean);
   return contents;
 }
+function showRetry(target,action){target.innerHTML='';const b=document.createElement('button');b.textContent='Retry';b.onclick=action;target.appendChild(b);}
 async function nextQuestion(){
   try{
     started=true;
@@ -123,23 +124,27 @@ async function nextQuestion(){
       answersDiv.appendChild(d);
     });
   }catch(e){
-    document.getElementById('qtext').textContent=e.message;
+    document.getElementById('qtext').textContent='';
+    showRetry(document.getElementById('answers'),nextQuestion);
   }
 }
 async function selectAnswer(idx){
   const qa=currentQA;
   const ans=qa.answers[idx];
+  const answersDiv=document.getElementById('answers');
   try{
-    const prompt=`Existing persona:\n${persona.text}\nGuidance:\n${guidanceText}\nQuestion:${qa.question}\nCategory:${currentCategory}\nAnswers:${qa.answers.join(' | ')}\nUser selected:${ans}. Revise the persona description holistically so it would choose this option while staying consistent and non-contradictory. Reply with the updated persona text only.`;
+    const prompt=`Existing persona:\n${persona.text}\nGuidance:\n${guidanceText}\nQuestion:${qa.question}\nCategory:${currentCategory}\nAnswers:${qa.answers.join(' | ')}\nUser selected:${ans}. Revise the persona incrementally so it leans toward this option while avoiding assumptions about name, gender, or age. Keep the description brief and general. Reply with the updated persona text only.`;
     const [out]=await groqChat([{role:'user',content:prompt}]);
     persona.text=out.trim();
     updatePersona();
     coverage[currentCategory]=(coverage[currentCategory]||0)+1;
     localStorage.setItem('coverage',JSON.stringify(coverage));
-  }catch(e){console.error(e);}
-  nextQuestion();
+    nextQuestion();
+  }catch(e){
+    showRetry(answersDiv,()=>selectAnswer(idx));
+  }
 }
-document.getElementById('ask').onclick=async()=>{
+async function askQuestion(){
   const q=document.getElementById('testq').value.trim();
   if(!q)return;
   document.getElementById('testa').textContent='...';
@@ -151,9 +156,10 @@ document.getElementById('ask').onclick=async()=>{
     const [out]=await groqChat(msgs);
     document.getElementById('testa').textContent=out.trim();
   }catch(e){
-    document.getElementById('testa').textContent=e.message;
+    showRetry(document.getElementById('testa'),askQuestion);
   }
-};
+}
+document.getElementById('ask').onclick=askQuestion;
 if(localStorage.getItem('groq_key')) nextQuestion();
 </script>
 </body>
