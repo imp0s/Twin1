@@ -87,7 +87,7 @@ async function nextQuestion(){
     started=true;
     const cat=leastCovered();
     currentCategory=cat.name;
-    const prompt=`Persona:\n${persona.text}\n\nGenerate one multiple-choice question to refine this persona's ${cat.name} (${cat.desc}). Use varied everyday topics. Return JSON {question:string, answers:string[], personaIndex:number} where personaIndex is which answer the persona would pick.`;
+    const prompt=`Persona:\n${persona.text}\n\nGenerate one short, simple multiple-choice question (under 20 words) to refine this persona's ${cat.name} (${cat.desc}). Use a different everyday topic each time. Return JSON {question:string, answers:string[], personaIndex:number} where the question and answers are brief and personaIndex is which answer the persona would choose.`;
     const [out]=await groqChat([{role:'user',content:prompt}]);
     const match=out.match(/\{[\s\S]*\}/);
     if(!match) throw new Error('Model did not return JSON');
@@ -125,7 +125,10 @@ document.getElementById('ask').onclick=async()=>{
   if(!q)return;
   document.getElementById('testa').textContent='...';
   try{
-    const msgs=[{role:'system',content:persona.text},{role:'user',content:q}];
+    const msgs=[
+      {role:'system',content:`You are the following persona:\n${persona.text}\nRespond decisively and stay true to this personality.`},
+      {role:'user',content:q}
+    ];
     const [out]=await groqChat(msgs);
     document.getElementById('testa').textContent=out.trim();
   }catch(e){
