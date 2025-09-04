@@ -22,6 +22,7 @@ pre{background:#f9f9f9;padding:8px;border:1px solid #eee;border-radius:6px;white
 <label>Groq API key <input id="apikey" style="width:260px"></label>
 <button id="saveKey">Save</button>
 <button id="clearStorage">Clear Storage</button>
+<button id="refresh">Refresh</button>
 </section>
 <section>
 <h2>Guidance</h2>
@@ -31,6 +32,7 @@ pre{background:#f9f9f9;padding:8px;border:1px solid #eee;border-radius:6px;white
 <section>
 <h2>Persona</h2>
 <pre id="persona"></pre>
+<button id="clearPersona">Clear persona</button>
 </section>
 <section>
 <h2>Calibration</h2>
@@ -63,14 +65,28 @@ function leastCovered(){
   return opts[Math.floor(Math.random()*opts.length)];
 }
 const persona={text:localStorage.getItem('persona')||'You are a helpful assistant.'};
+let guidanceText=localStorage.getItem('guidance')||'';
 const apiKeyInput=document.getElementById('apikey');
 apiKeyInput.value=localStorage.getItem('groq_key')||'';
 function saveKey(){localStorage.setItem('groq_key',apiKeyInput.value.trim());}
 document.getElementById('saveKey').onclick=()=>{saveKey();if(!started)nextQuestion();};
 document.getElementById('clearStorage').onclick=()=>{localStorage.clear();location.reload();};
+document.getElementById('refresh').onclick=async()=>{
+  if('serviceWorker' in navigator){
+    const regs=await navigator.serviceWorker.getRegistrations();
+    for(const r of regs) await r.unregister();
+  }
+  const keys=await caches.keys();
+  await Promise.all(keys.map(k=>caches.delete(k)));
+  location.reload();
+};
 const personaPre=document.getElementById('persona');
-function updatePersona(){personaPre.textContent=persona.text;localStorage.setItem('persona',persona.text);}updatePersona();
-document.getElementById('addGuidance').onclick=()=>{const g=document.getElementById('guidance').value.trim();if(!g)return;persona.text+='\n'+g;document.getElementById('guidance').value='';updatePersona();};
+function renderPersona(){personaPre.textContent=persona.text+(guidanceText?'\n'+guidanceText:'');}
+function storePersona(){localStorage.setItem('persona',persona.text);localStorage.setItem('guidance',guidanceText);}
+function updatePersona(){storePersona();renderPersona();}
+renderPersona();
+document.getElementById('addGuidance').onclick=()=>{const g=document.getElementById('guidance').value.trim();if(!g)return;guidanceText+= (guidanceText?'\n':'')+g;document.getElementById('guidance').value='';updatePersona();};
+document.getElementById('clearPersona').onclick=()=>{persona.text='You are a helpful assistant.';localStorage.removeItem('persona');renderPersona();};
 let currentQA=null;let currentCategory=null;let started=false;
 async function groqChat(messages){
   const key=localStorage.getItem('groq_key');
@@ -87,7 +103,7 @@ async function nextQuestion(){
     started=true;
     const cat=leastCovered();
     currentCategory=cat.name;
-    const prompt=`Persona:\n${persona.text}\n\nGenerate one short, simple multiple-choice question (under 20 words) to refine this persona's ${cat.name} (${cat.desc}). Use a different everyday topic each time. Return JSON {question:string, answers:string[], personaIndex:number} where the question and answers are brief and personaIndex is which answer the persona would choose.`;
+    const prompt=`Persona:\n${persona.text}\nGuidance:\n${guidanceText}\n\nGenerate one short, simple multiple-choice question (under 20 words) to refine this persona's ${cat.name} (${cat.desc}). Use a different everyday topic each time. Return JSON {question:string, answers:string[], personaIndex:number} where the question and answers are brief and personaIndex is which answer the persona would choose.`;
     const [out]=await groqChat([{role:'user',content:prompt}]);
     const match=out.match(/\{[\s\S]*\}/);
     if(!match) throw new Error('Model did not return JSON');
@@ -114,7 +130,7 @@ async function selectAnswer(idx){
   const qa=currentQA;
   const ans=qa.answers[idx];
   try{
-    const prompt=`Persona:\n${persona.text}\nQuestion:${qa.question}\nCategory:${currentCategory}\nAnswers:${qa.answers.join(' | ')}\nUser selected:${ans}. Update the persona description so it would choose this option. Reply with revised persona text only.`;
+    const prompt=`Existing persona:\n${persona.text}\nGuidance:\n${guidanceText}\nQuestion:${qa.question}\nCategory:${currentCategory}\nAnswers:${qa.answers.join(' | ')}\nUser selected:${ans}. Revise the persona description holistically so it would choose this option while staying consistent and non-contradictory. Reply with the updated persona text only.`;
     const [out]=await groqChat([{role:'user',content:prompt}]);
     persona.text=out.trim();
     updatePersona();
@@ -129,7 +145,7 @@ document.getElementById('ask').onclick=async()=>{
   document.getElementById('testa').textContent='...';
   try{
     const msgs=[
-      {role:'system',content:`You are the following persona:\n${persona.text}\nRespond decisively and stay true to this personality.`},
+      {role:'system',content:`You are the following persona:\n${persona.text}\nGuidance:\n${guidanceText}\nAnswer strictly as this persona. Be concise and give a clear, direct reply in one short sentence.`},
       {role:'user',content:q}
     ];
     const [out]=await groqChat(msgs);
