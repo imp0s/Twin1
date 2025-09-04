@@ -47,6 +47,21 @@ pre{background:#f9f9f9;padding:8px;border:1px solid #eee;border-radius:6px;white
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js');
 }
+const categories=[
+  {name:'Interpersonal Style',desc:'how they relate to others'},
+  {name:'Cognitive Preferences',desc:'how they approach problems'},
+  {name:'Emotional Patterns',desc:'how they react to stress and feelings'},
+  {name:'Motivation & Values',desc:'what drives their decisions'},
+  {name:'Self-Discipline & Reliability',desc:'organization and follow-through'},
+  {name:'Adaptability & Risk',desc:'openness to change and risk tolerance'},
+  {name:'Identity & Self-Perception',desc:'self-confidence and awareness'}
+];
+let coverage=JSON.parse(localStorage.getItem('coverage')||'{}');
+function leastCovered(){
+  let min=Infinity;let opts=[];
+  categories.forEach(c=>{const v=coverage[c.name]||0;if(v<min){min=v;opts=[c];}else if(v===min){opts.push(c);}});
+  return opts[Math.floor(Math.random()*opts.length)];
+}
 const persona={text:localStorage.getItem('persona')||'You are a helpful assistant.'};
 const apiKeyInput=document.getElementById('apikey');
 apiKeyInput.value=localStorage.getItem('groq_key')||'';
@@ -56,7 +71,7 @@ document.getElementById('clearStorage').onclick=()=>{localStorage.clear();locati
 const personaPre=document.getElementById('persona');
 function updatePersona(){personaPre.textContent=persona.text;localStorage.setItem('persona',persona.text);}updatePersona();
 document.getElementById('addGuidance').onclick=()=>{const g=document.getElementById('guidance').value.trim();if(!g)return;persona.text+='\n'+g;document.getElementById('guidance').value='';updatePersona();};
-let currentQA=null;let started=false;
+let currentQA=null;let currentCategory=null;let started=false;
 async function groqChat(messages){
   const key=localStorage.getItem('groq_key');
   if(!key) throw new Error('Missing API key');
@@ -70,7 +85,9 @@ async function groqChat(messages){
 async function nextQuestion(){
   try{
     started=true;
-    const prompt=`Persona:\n${persona.text}\n\nGenerate one multiple-choice question to refine this persona. Use varied everyday topics. Return JSON {question:string, answers:string[], personaIndex:number} where personaIndex is which answer the persona would pick.`;
+    const cat=leastCovered();
+    currentCategory=cat.name;
+    const prompt=`Persona:\n${persona.text}\n\nGenerate one multiple-choice question to refine this persona's ${cat.name} (${cat.desc}). Use varied everyday topics. Return JSON {question:string, answers:string[], personaIndex:number} where personaIndex is which answer the persona would pick.`;
     const [out]=await groqChat([{role:'user',content:prompt}]);
     const match=out.match(/\{[\s\S]*\}/);
     if(!match) throw new Error('Model did not return JSON');
@@ -94,10 +111,12 @@ async function selectAnswer(idx){
   const qa=currentQA;
   const ans=qa.answers[idx];
   try{
-    const prompt=`Persona:\n${persona.text}\nQuestion:${qa.question}\nAnswers:${qa.answers.join(' | ')}\nUser selected:${ans}. Update the persona description so it would choose this option. Reply with revised persona text only.`;
+    const prompt=`Persona:\n${persona.text}\nQuestion:${qa.question}\nCategory:${currentCategory}\nAnswers:${qa.answers.join(' | ')}\nUser selected:${ans}. Update the persona description so it would choose this option. Reply with revised persona text only.`;
     const [out]=await groqChat([{role:'user',content:prompt}]);
     persona.text=out.trim();
     updatePersona();
+    coverage[currentCategory]=(coverage[currentCategory]||0)+1;
+    localStorage.setItem('coverage',JSON.stringify(coverage));
   }catch(e){console.error(e);}
   nextQuestion();
 }
