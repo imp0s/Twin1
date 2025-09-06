@@ -1,0 +1,8 @@
+name = "persona-trainer-worker"
+main = "worker.js"
+compatibility_date = "2024-10-01"
+
+[kv_namespaces]
+bindings = [
+  { binding = "KV", id = "YOUR_KV_NAMESPACE_ID" }
+]

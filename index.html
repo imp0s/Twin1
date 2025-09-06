@@ -22,8 +22,6 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;lin
 #chatInput{border-radius:20px;resize:none;overflow:hidden}
 .answer{cursor:pointer}
 .answer.persona{border-color:#0a0;background:#e0ffe0}
-.progress-container{width:100%;height:10px;background:#ddd;border-radius:5px;margin:8px 0}
-.progress-bar{height:100%;width:0%;background:red;border-radius:5px}
 pre{background:#f9f9f9;padding:8px;border:1px solid #eee;border-radius:6px;white-space:pre-wrap}
 </style>
 </head>
@@ -32,7 +30,6 @@ pre{background:#f9f9f9;padding:8px;border:1px solid #eee;border-radius:6px;white
 <button class="nav-link active" data-target="main">Chat</button>
 <button class="nav-link" data-target="learn">Learn</button>
 <button class="nav-link" data-target="persona">Persona</button>
-<button class="nav-link" data-target="settings">Settings</button>
 </nav>
 <section id="main" class="screen active container my-3">
 <h2>Chat</h2>
@@ -50,13 +47,14 @@ pre{background:#f9f9f9;padding:8px;border:1px solid #eee;border-radius:6px;white
 </section>
 <section id="learn" class="screen container my-3">
 <h2>Learning</h2>
-<div class="progress-container"><div id="progress" class="progress-bar"></div></div>
-<div id="progressText">0%</div>
-<div id="qtext">Enter an API key to begin.</div>
+<div id="confidence" class="mb-2"></div>
+<div id="qtext">Loading...</div>
 <div id="answers" class="list-group"></div>
 </section>
 <section id="persona" class="screen container my-3">
 <h2>Persona</h2>
+<input id="nameBox" class="form-control mb-2" placeholder="Persona name">
+<button id="updateName" class="btn btn-secondary mb-2">Update Name</button>
 <pre id="personaPreview"></pre>
 <textarea id="guidanceBox" rows="3" class="form-control mb-2"></textarea>
 <button id="updateGuidance" class="btn btn-primary mb-2">Update Guidance</button>
@@ -67,14 +65,6 @@ pre{background:#f9f9f9;padding:8px;border:1px solid #eee;border-radius:6px;white
 <button id="clearPersona" class="btn btn-danger">Clear</button>
 </div>
 </section>
-<section id="settings" class="screen container my-3">
-<h2>Settings</h2>
-<div class="mb-2"><label class="form-label">API key <input id="apikey" class="form-control"></label></div>
-<div class="mb-2"><label class="form-label">Service URL <input id="service" class="form-control"></label></div>
-<button id="saveSettings" class="btn btn-primary me-2">Save</button>
-<button id="clearStorage" class="btn btn-secondary me-2">Clear Storage</button>
-<button id="refresh" class="btn btn-warning">Refresh</button>
-</section>
 <script>
 if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js');}
 const defaultPersona='You are the digital twin of a real person who is ruthlessly asexual and devoid of gender or racial attributes.';
@@ -83,105 +73,64 @@ function optimizePersonaText(text){
   const unique=[...new Set(sentences)];
   return unique.map(s=>s.replace(/\s+/g,' ')).join('. ')+'.';
 }
-let persona={text:optimizePersonaText(localStorage.getItem('persona')||defaultPersona)};
-let guidanceText=localStorage.getItem('guidance')||'';
-let coverage=JSON.parse(localStorage.getItem('coverage')||'{}');
-let chatHistory=[];
-const apiKeyInput=document.getElementById('apikey');
-const serviceInput=document.getElementById('service');
-apiKeyInput.value=localStorage.getItem('api_key')||localStorage.getItem('groq_key')||'';
-serviceInput.value=localStorage.getItem('service')||'https://api.groq.com/openai/v1/chat/completions';
-function saveSettings(){localStorage.setItem('api_key',apiKeyInput.value.trim());localStorage.setItem('service',serviceInput.value.trim());}
-document.getElementById('saveSettings').onclick=()=>{saveSettings();if(!started&&currentScreen==='learn')nextQuestion();};
-document.getElementById('clearStorage').onclick=()=>{localStorage.clear();location.reload();};
-document.getElementById('refresh').onclick=async()=>{if('serviceWorker' in navigator){const regs=await navigator.serviceWorker.getRegistrations();for(const r of regs)await r.unregister();}const keys=await caches.keys();await Promise.all(keys.map(k=>caches.delete(k)));location.reload();};
-function renderPersona(){const lines=persona.text.split('\n').slice(0,3).join('\n');document.getElementById('personaPreview').textContent=lines+(persona.text.includes('\n')?'\n...':'')+(guidanceText?'\n'+guidanceText:'');document.getElementById('guidanceBox').value=guidanceText;}
-function storePersona(){localStorage.setItem('persona',persona.text);localStorage.setItem('guidance',guidanceText);}
-function updatePersona(){storePersona();renderPersona();updateProgress();}
-renderPersona();
-document.getElementById('updateGuidance').onclick=()=>{guidanceText=document.getElementById('guidanceBox').value.trim();updatePersona();};
-document.getElementById('savePersona').onclick=()=>{const data=JSON.stringify({persona:persona.text,guidance:guidanceText},null,2);const blob=new Blob([data],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='persona.json';a.click();URL.revokeObjectURL(a.href);};
-document.getElementById('loadPersona').onclick=()=>document.getElementById('loadInput').click();
-document.getElementById('loadInput').onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const obj=JSON.parse(ev.target.result);persona.text=optimizePersonaText(obj.persona||defaultPersona);guidanceText=obj.guidance||'';coverage={};localStorage.removeItem('coverage');updatePersona();}catch(err){console.error(err);}};reader.readAsText(file);};
-document.getElementById('clearPersona').onclick=()=>{persona.text=optimizePersonaText(defaultPersona);guidanceText='';coverage={};localStorage.removeItem('coverage');updatePersona();};
-const categories=[
-  {name:'Likes & Dislikes',desc:'tastes in activities or food'},
-  {name:'Politics & Society',desc:'political and social outlook'},
-  {name:'Geography & Climate',desc:'preferred places and weather'},
-  {name:'Energy & Routine',desc:'daily energy and lifestyle'},
-  {name:'Aspirations & Goals',desc:'career or life ambitions'},
-  {name:'Psychological Traits',desc:'thinking patterns and behaviour'},
-  {name:'Culture & Arts',desc:'music, media and art interests'},
-  {name:'Relationships & Community',desc:'friendships and social ties'},
-  {name:'Work & Productivity',desc:'discipline and work style'},
-  {name:'Decision Making & Values',desc:'how choices and priorities form'},
-  {name:'Emotions & Coping',desc:'responses to stress or loss'},
-  {name:'Technology & Innovation',desc:'attitude toward new tech'},
-  {name:'Spare Time & Hobbies',desc:'weekend and leisure pursuits'},
-  {name:'Financial Outlook',desc:'saving, spending or investing'},
-  {name:'Travel & Adventure',desc:'motivation for exploring new places'}
-];
-function leastCovered(){let min=Infinity,opts=[];categories.forEach(c=>{const v=coverage[c.name]||0;if(v<min){min=v;opts=[c];}else if(v===min){opts.push(c);}});return opts[Math.floor(Math.random()*opts.length)];}
-let currentQA=null;let currentCategory=null;let started=false;const progressBar=document.getElementById('progress');const progressText=document.getElementById('progressText');
-function updateProgress(){const answered=Object.values(coverage).reduce((a,b)=>a+b,0);const pct=Math.round(100*(1-Math.exp(-answered/5)));progressBar.style.width=pct+'%';progressBar.style.backgroundColor=answered<5?'red':answered<10?'orange':'green';progressText.textContent=pct+'%';}
-updateProgress();
-async function groqChat(messages){const key=localStorage.getItem('api_key')||localStorage.getItem('groq_key');const svc=localStorage.getItem('service')||'https://api.groq.com/openai/v1/chat/completions';if(!key) throw new Error('Missing API key');const r=await fetch(svc,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:'llama-3.1-8b-instant',temperature:0.7,messages})});const t=await r.text();if(!r.ok) throw new Error(t);const j=JSON.parse(t);const contents=(j.choices||[]).map(c=>c.message?.content).filter(Boolean);return contents;}
-function showRetry(target,action){target.innerHTML='';const b=document.createElement('button');b.textContent='Retry';b.onclick=action;target.appendChild(b);}
-async function nextQuestion(){
-  try{
-    started=true;
-    const cat=leastCovered();
-    currentCategory=cat.name;
-    const prompt=`Persona:\n${persona.text}\nGuidance:\n${guidanceText}\n\nGenerate one concise multiple-choice question (<=15 words) about this persona's ${cat.name} (${cat.desc}). Provide two to four brief answers (<=6 words) that are mutually exclusive and collectively exhaustive. Do not include 'not applicable' or similar options and avoid any reference to gender, sexuality or race. Only repeat a topic to clarify ambiguity. Return JSON {question:string, answers:string[], personaIndex:number}.`;
-    const [out]=await groqChat([{role:'user',content:prompt}]);
-    const match=out.match(/\{[\s\S]*\}/);
-    if(!match) throw new Error('Model did not return JSON');
-    const cleaned=match[0].replace(/\/\/.*$/gm,'').replace(/\/\*[\s\S]*?\*\//g,'');
-    const qa=JSON.parse(cleaned);
-    currentQA=qa;
-    document.getElementById('qtext').textContent=qa.question;
-    const answersDiv=document.getElementById('answers');
-    answersDiv.innerHTML='';
-    qa.answers.forEach((ans,i)=>{
-      const d=document.createElement('div');
-      d.textContent=ans;
-      d.className='list-group-item list-group-item-action answer'+(i===qa.personaIndex?' persona':'');
-      d.onclick=()=>selectAnswer(i);
-      answersDiv.appendChild(d);
-    });
-  }catch(e){
-    document.getElementById('qtext').textContent='';
-    showRetry(document.getElementById('answers'),nextQuestion);
+let personaId=localStorage.getItem('persona_id');
+if(!personaId){personaId=crypto.randomUUID();localStorage.setItem('persona_id',personaId);}
+let personaName=localStorage.getItem('persona_name')||'';
+let persona={text:defaultPersona};
+let guidanceText='';
+async function initName(){
+  if(!personaName){
+    const r=await fetch('/api/init',{method:'POST',headers:{Authorization:'Bearer '+personaId}});
+    if(r.ok){const j=await r.json();personaName=j.name;localStorage.setItem('persona_name',personaName);}
   }
+  document.getElementById('nameBox').value=personaName;
 }
-async function selectAnswer(idx){const qa=currentQA;const ans=qa.answers[idx];const answersDiv=document.getElementById('answers');try{const prompt=`Existing persona:\n${persona.text}\nGuidance:\n${guidanceText}\nQuestion:${qa.question}\nCategory:${currentCategory}\nAnswers:${qa.answers.join(' | ')}\nUser selected:${ans}. Revise the persona incrementally so it leans toward this option while avoiding assumptions about name, gender, sexuality, or race. Ensure the persona remains ruthlessly asexual, concise and non-redundant. Reply with the updated persona text only.`;const [out]=await groqChat([{role:'user',content:prompt}]);persona.text=optimizePersonaText(out.trim());coverage[currentCategory]=(coverage[currentCategory]||0)+1;localStorage.setItem('coverage',JSON.stringify(coverage));updatePersona();nextQuestion();}catch(e){showRetry(answersDiv,()=>selectAnswer(idx));}}
-const chatInput=document.getElementById('chatInput');const historyDiv=document.getElementById('history');
+async function loadProfile(){
+  const r=await fetch('/api/profile',{headers:{Authorization:'Bearer '+personaId}});
+  if(r.ok){const j=await r.json();persona.text=j.persona||defaultPersona;guidanceText=j.guidance||'';personaName=j.name||personaName;renderPersona();}
+}
+function renderPersona(){
+  const lines=persona.text.split('\n').slice(0,3).join('\n');
+  document.getElementById('personaPreview').textContent=lines+(persona.text.includes('\n')?'\n...':'')+(guidanceText?'\n'+guidanceText:'');
+  document.getElementById('guidanceBox').value=guidanceText;
+  document.getElementById('nameBox').value=personaName;
+}
+initName();
+loadProfile();
+document.getElementById('updateGuidance').onclick=async()=>{
+  guidanceText=document.getElementById('guidanceBox').value.trim();
+  await fetch('/api/guidance',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+personaId},body:JSON.stringify({guidance:guidanceText})});
+  renderPersona();
+};
+document.getElementById('updateName').onclick=async()=>{
+  const nm=document.getElementById('nameBox').value.trim();
+  await fetch('/api/name',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+personaId},body:JSON.stringify({name:nm})});
+  personaName=nm;localStorage.setItem('persona_name',personaName);
+};
+document.getElementById('savePersona').onclick=()=>{
+  const data=JSON.stringify({persona:persona.text,guidance:guidanceText},null,2);
+  const blob=new Blob([data],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='persona.json';a.click();URL.revokeObjectURL(a.href);
+};
+document.getElementById('loadPersona').onclick=()=>document.getElementById('loadInput').click();
+document.getElementById('loadInput').onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=async ev=>{try{const obj=JSON.parse(ev.target.result);persona.text=optimizePersonaText(obj.persona||defaultPersona);guidanceText=obj.guidance||'';await fetch('/api/persona',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+personaId},body:JSON.stringify({persona:persona.text,guidance:guidanceText})});renderPersona();}catch(err){console.error(err);}};reader.readAsText(file);};
+document.getElementById('clearPersona').onclick=async()=>{persona.text=defaultPersona;guidanceText='';await fetch('/api/persona',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+personaId},body:JSON.stringify({persona:persona.text,guidance:guidanceText})});renderPersona();};
+let chatHistory=[];
+const chatInput=document.getElementById('chatInput');
+const historyDiv=document.getElementById('history');
 chatInput.addEventListener('input',()=>{chatInput.style.height='auto';chatInput.style.height=chatInput.scrollHeight+'px';});
 function renderChat(){historyDiv.innerHTML='';chatHistory.forEach(m=>{const row=document.createElement('div');row.className='chat-row';const bubble=document.createElement('div');bubble.className='chat-bubble '+(m.role==='user'?'user':'bot');bubble.textContent=m.content;row.appendChild(bubble);historyDiv.appendChild(row);});historyDiv.scrollTop=historyDiv.scrollHeight;}
-async function sendChat(){
-  const q=chatInput.value.trim();
-  if(!q)return;
-  chatHistory.push({role:'user',content:q});
-  renderChat();
-  chatInput.value='';
-  chatInput.style.height='auto';
-  try{
-    const prefix=`Persona:\n${persona.text}\nGuidance:\n${guidanceText}`;
-    const recent=chatHistory.slice(-20);
-    const msgs=[{role:'system',content:`${prefix}\nAnswer strictly as this persona while avoiding any mention of gender, sexuality or race. Be concise and give a clear, direct reply in one short sentence.`},...recent];
-    const [out]=await groqChat(msgs);
-    chatHistory.push({role:'assistant',content:out.trim()});
-    renderChat();
-  }catch(e){
-    chatHistory.push({role:'assistant',content:'Error'});
-    renderChat();
-  }
-}
+async function serverChat(messages){const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+personaId},body:JSON.stringify({messages})});const j=await r.json();return (j.choices||[]).map(c=>c.message?.content).filter(Boolean);}
+async function sendChat(){const q=chatInput.value.trim();if(!q)return;chatHistory.push({role:'user',content:q});renderChat();chatInput.value='';chatInput.style.height='auto';try{const recent=chatHistory.slice(-20);const [out]=await serverChat(recent);chatHistory.push({role:'assistant',content:out.trim()});renderChat();}catch(e){chatHistory.push({role:'assistant',content:'Error'});renderChat();}}
 document.getElementById('send').onclick=sendChat;document.getElementById('clearChat').onclick=()=>{chatHistory=[];renderChat();};document.querySelectorAll('.sample').forEach(b=>b.onclick=()=>{chatInput.value=b.textContent;sendChat();});
-let currentScreen='main';
-function showScreen(id){currentScreen=id;document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('#tabs .nav-link').forEach(b=>b.classList.remove('active'));document.querySelector(`#tabs [data-target="${id}"]`).classList.add('active');if(id==='learn'&&!started&&(localStorage.getItem('api_key')||localStorage.getItem('groq_key')))nextQuestion();}
+let currentQA=null;let started=false;
+async function fetchQuestion(selected){try{const opts={headers:{Authorization:'Bearer '+personaId}};if(selected==null){opts.method='GET';}else{opts.method='POST';opts.headers['Content-Type']='application/json';opts.body=JSON.stringify({selected});}
+const r=await fetch('/api/learn',opts);const j=await r.json();currentQA=j;document.getElementById('qtext').textContent=j.question;const answersDiv=document.getElementById('answers');answersDiv.innerHTML='';j.answers.forEach((ans,i)=>{const d=document.createElement('div');d.textContent=ans;d.className='list-group-item list-group-item-action answer'+(i===j.personaIndex?' persona':'');d.onclick=()=>fetchQuestion(i);answersDiv.appendChild(d);});const confDiv=document.getElementById('confidence');confDiv.textContent='Confidence: '+j.confidence;confDiv.style.color=j.confidence==='high'?'green':j.confidence==='medium'?'orange':'red';persona.text=j.persona;renderPersona();started=true;}catch(e){document.getElementById('qtext').textContent='Error';}}
 document.querySelectorAll('#tabs .nav-link').forEach(btn=>{btn.onclick=()=>showScreen(btn.dataset.target);});
+let currentScreen='main';
+function showScreen(id){currentScreen=id;document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('#tabs .nav-link').forEach(b=>b.classList.remove('active'));document.querySelector(`#tabs [data-target="${id}"]`).classList.add('active');if(id==='learn'&&!started)fetchQuestion();}
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+
