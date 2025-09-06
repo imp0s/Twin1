@@ -158,7 +158,25 @@ async function selectAnswer(idx){const qa=currentQA;const ans=qa.answers[idx];co
 const chatInput=document.getElementById('chatInput');const historyDiv=document.getElementById('history');
 chatInput.addEventListener('input',()=>{chatInput.style.height='auto';chatInput.style.height=chatInput.scrollHeight+'px';});
 function renderChat(){historyDiv.innerHTML='';chatHistory.forEach(m=>{const row=document.createElement('div');row.className='chat-row';const bubble=document.createElement('div');bubble.className='chat-bubble '+(m.role==='user'?'user':'bot');bubble.textContent=m.content;row.appendChild(bubble);historyDiv.appendChild(row);});historyDiv.scrollTop=historyDiv.scrollHeight;}
-async function sendChat(){const q=chatInput.value.trim();if(!q)return;chatHistory.push({role:'user',content:q});renderChat();chatInput.value='';chatInput.style.height='auto';try{const msgs=[{role:'system',content:`You are the following persona:\n${persona.text}\nGuidance:\n${guidanceText}\nAnswer strictly as this persona while avoiding any mention of gender, sexuality or race. Be concise and give a clear, direct reply in one short sentence.`},...chatHistory];const [out]=await groqChat(msgs);chatHistory.push({role:'assistant',content:out.trim()});renderChat();}catch(e){chatHistory.push({role:'assistant',content:'Error'});renderChat();}}
+async function sendChat(){
+  const q=chatInput.value.trim();
+  if(!q)return;
+  chatHistory.push({role:'user',content:q});
+  renderChat();
+  chatInput.value='';
+  chatInput.style.height='auto';
+  try{
+    const prefix=`Persona:\n${persona.text}\nGuidance:\n${guidanceText}`;
+    const recent=chatHistory.slice(-20);
+    const msgs=[{role:'system',content:`${prefix}\nAnswer strictly as this persona while avoiding any mention of gender, sexuality or race. Be concise and give a clear, direct reply in one short sentence.`},...recent];
+    const [out]=await groqChat(msgs);
+    chatHistory.push({role:'assistant',content:out.trim()});
+    renderChat();
+  }catch(e){
+    chatHistory.push({role:'assistant',content:'Error'});
+    renderChat();
+  }
+}
 document.getElementById('send').onclick=sendChat;document.getElementById('clearChat').onclick=()=>{chatHistory=[];renderChat();};document.querySelectorAll('.sample').forEach(b=>b.onclick=()=>{chatInput.value=b.textContent;sendChat();});
 let currentScreen='main';
 function showScreen(id){currentScreen=id;document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('#tabs .nav-link').forEach(b=>b.classList.remove('active'));document.querySelector(`#tabs [data-target="${id}"]`).classList.add('active');if(id==='learn'&&!started&&(localStorage.getItem('api_key')||localStorage.getItem('groq_key')))nextQuestion();}
