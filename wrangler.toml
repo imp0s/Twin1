@@ -3,7 +3,7 @@ main = "worker.js"
 compatibility_date = "2024-10-01"
 
 kv_namespaces = [
-  { binding = "KV", id = "atorvo" }
+  { binding = "KV", id = "ac197a3f5a6d4f82b5586970f780beeb" }
 ]
 
 [assets]
