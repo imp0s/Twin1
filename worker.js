@@ -9,6 +9,9 @@ export default {
           headers: { 'Content-Type': 'text/html; charset=UTF-8' }
         });
       }
+      if(url.pathname === '/api/init' && request.method === 'POST') {
+        return await handleInit(id, env);
+      }
       if (url.pathname === '/sw.js') {
         const asset = await env.ASSETS.fetch(new Request(url.origin + '/sw.js'));
         const text = await asset.text();
@@ -36,9 +39,6 @@ export default {
     if(!id) return new Response('Unauthorized', {status:401});
 
     try {
-      if(url.pathname === '/api/init' && request.method === 'POST') {
-        return await handleInit(id, env);
-      }
       if(url.pathname === '/api/profile' && request.method === 'GET') {
         return await handleProfile(id, env);
       }
