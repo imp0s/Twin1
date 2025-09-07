@@ -13,3 +13,6 @@ directory = "./"
 
 [build]
 command = "npm test"
+
+[observability.logs]
+enabled = true
