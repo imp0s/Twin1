@@ -1,6 +1,36 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (request.method === 'GET') {
+      if (url.pathname === '/' || url.pathname === '/index.html') {
+        const asset = await env.ASSETS.fetch(new Request(url.origin + '/index.html'));
+        const html = await asset.text();
+        return new Response(html, {
+          headers: { 'Content-Type': 'text/html; charset=UTF-8' }
+        });
+      }
+      if (url.pathname === '/sw.js') {
+        const asset = await env.ASSETS.fetch(new Request(url.origin + '/sw.js'));
+        const text = await asset.text();
+        return new Response(text, {
+          headers: { 'Content-Type': 'application/javascript; charset=UTF-8' }
+        });
+      }
+      if (url.pathname === '/manifest.webmanifest') {
+        const asset = await env.ASSETS.fetch(new Request(url.origin + '/manifest.webmanifest'));
+        const text = await asset.text();
+        return new Response(text, {
+          headers: { 'Content-Type': 'application/manifest+json; charset=UTF-8' }
+        });
+      }
+      if (url.pathname === '/icon.svg') {
+        const asset = await env.ASSETS.fetch(new Request(url.origin + '/icon.svg'));
+        const text = await asset.text();
+        return new Response(text, {
+          headers: { 'Content-Type': 'image/svg+xml; charset=UTF-8' }
+        });
+      }
+    }
     const auth = request.headers.get('Authorization') || '';
     const id = auth.startsWith('Bearer ') ? auth.slice(7) : '';
     if(!id) return new Response('Unauthorized', {status:401});

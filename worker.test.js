@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from './worker.js';
+import fs from 'node:fs/promises';
 
 class MockKV {
   constructor() { this.store = new Map(); }
@@ -8,10 +9,33 @@ class MockKV {
   async put(key, value) { this.store.set(key, value); }
 }
 
+class MockAssets {
+  async fetch(req) {
+    const url = new URL(req.url);
+    const path = url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
+    const file = path || 'index.html';
+    const text = await fs.readFile(file, 'utf8');
+    let type = 'text/plain';
+    if (file.endsWith('.html')) type = 'text/html; charset=UTF-8';
+    else if (file.endsWith('.js')) type = 'application/javascript; charset=UTF-8';
+    else if (file.endsWith('.webmanifest')) type = 'application/manifest+json; charset=UTF-8';
+    else if (file.endsWith('.svg')) type = 'image/svg+xml; charset=UTF-8';
+    return new Response(text, { headers: { 'Content-Type': type } });
+  }
+}
+
 test('unauthorized request returns 401', async () => {
   const req = new Request('http://example.com/api/profile');
   const res = await worker.fetch(req, { KV: new MockKV() });
   assert.equal(res.status, 401);
+});
+
+test('GET / returns index.html', async () => {
+  const req = new Request('http://example.com/');
+  const res = await worker.fetch(req, { KV: new MockKV(), ASSETS: new MockAssets() });
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.ok(text.includes('<title>Persona Trainer PWA</title>'));
 });
 
 test('init assigns name and persona', async () => {

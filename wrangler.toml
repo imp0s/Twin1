@@ -6,6 +6,10 @@ compatibility_date = "2024-10-01"
 #binding = "KV"
 #id = "$KV"
 
+[assets]
+binding = "ASSETS"
+directory = "./"
+
 
 [build]
 command = "npm test"
