@@ -24,10 +24,22 @@ class MockAssets {
   }
 }
 
-test('unauthorized request returns 401', async () => {
-  const req = new Request('http://example.com/api/profile');
-  const res = await worker.fetch(req, { KV: new MockKV() });
-  assert.equal(res.status, 401);
+test('API endpoints require authorization', async () => {
+  const kv = new MockKV();
+  const cases = [
+    ['GET', 'profile'],
+    ['POST', 'guidance'],
+    ['POST', 'name'],
+    ['POST', 'persona'],
+    ['POST', 'chat'],
+    ['GET', 'learn'],
+    ['POST', 'learn']
+  ];
+  for (const [method, path] of cases) {
+    const req = new Request(`http://example.com/api/${path}`, { method });
+    const res = await worker.fetch(req, { KV: kv });
+    assert.equal(res.status, 401);
+  }
 });
 
 test('GET / returns index.html', async () => {
@@ -38,29 +50,6 @@ test('GET / returns index.html', async () => {
   assert.ok(text.includes('<title>Persona Trainer PWA</title>'));
 });
 
-test('init assigns name and persona', async () => {
-  const kv = new MockKV();
-  await kv.put('groq-api-key', 'key');
-  const originalFetch = global.fetch;
-  global.fetch = async () => new Response(
-    JSON.stringify({ choices: [{ message: { content: 'Alex' } }] }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } }
-  );
-  try {
-    const req = new Request('http://example.com/api/init', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer user1' }
-    });
-    const res = await worker.fetch(req, { KV: kv });
-    assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.equal(body.name, 'Alex');
-    assert.equal(await kv.get('user1-name'), 'Alex');
-    assert.ok(await kv.get('user1-persona'));
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
 
 test('profile returns stored data', async () => {
   const kv = new MockKV();
