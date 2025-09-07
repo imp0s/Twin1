@@ -6,6 +6,10 @@ compatibility_date = "2024-10-01"
 #binding = "KV"
 #id = "$KV"
 
+kv_namespaces = [
+  { binding = "KV", id = "atorvo" }
+]
+
 [assets]
 binding = "ASSETS"
 directory = "./"
