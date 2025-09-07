@@ -1,6 +1,11 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if(url.pathname === '/api/init' && request.method === 'POST') {
+      const auth = request.headers.get('Authorization') || '';
+      const id = auth.startsWith('Bearer ') ? auth.slice(7) : crypto.randomUUID();
+      return await handleInit(id, env);
+    }
     if (request.method === 'GET') {
       if (url.pathname === '/' || url.pathname === '/index.html') {
         const asset = await env.ASSETS.fetch(new Request(url.origin + '/index.html'));
@@ -8,9 +13,6 @@ export default {
         return new Response(html, {
           headers: { 'Content-Type': 'text/html; charset=UTF-8' }
         });
-      }
-      if(url.pathname === '/api/init' && request.method === 'POST') {
-        return await handleInit(id, env);
       }
       if (url.pathname === '/sw.js') {
         const asset = await env.ASSETS.fetch(new Request(url.origin + '/sw.js'));
@@ -94,7 +96,7 @@ async function handleInit(id, env){
   if(!await env.KV.get(`${id}-persona`)){
     await env.KV.put(`${id}-persona`, defaultPersona);
   }
-  return json({name});
+  return json({name,id});
 }
 
 async function handleProfile(id, env){

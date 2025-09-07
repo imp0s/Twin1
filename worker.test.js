@@ -42,6 +42,29 @@ test('API endpoints require authorization', async () => {
   }
 });
 
+test('POST /api/init works without auth', async () => {
+  const kv = new MockKV();
+  await kv.put('groq-api-key', 'test');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (url === 'https://api.groq.com/openai/v1/chat/completions') {
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'Alex' } }] }), { status: 200 });
+    }
+    throw new Error('unexpected fetch to ' + url);
+  };
+  try {
+    const req = new Request('http://example.com/api/init', { method: 'POST' });
+    const res = await worker.fetch(req, { KV: kv });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.name, 'Alex');
+    assert.ok(body.id);
+    assert.equal(await kv.get(`${body.id}-name`), 'Alex');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('GET / returns index.html', async () => {
   const req = new Request('http://example.com/');
   const res = await worker.fetch(req, { KV: new MockKV(), ASSETS: new MockAssets() });
