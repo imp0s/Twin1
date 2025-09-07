@@ -89,7 +89,7 @@ function json(obj){return new Response(JSON.stringify(obj),{headers:{'Content-Ty
 async function handleInit(id, env){
   let name = await env.KV.get(`${id}-name`);
   if(!name){
-    const [out] = await groqChat(env,[{role:'user',content:'Generate a short, non-gendered human name.'}]);
+    const [out] = await groqChat(env,[{role:'user',content:'Give me a random name for a person that is not associated with a particular gender. Do not respond with anything other than the forename and surname.'}]);
     name = out.trim().split(/[\n,]/)[0];
     await env.KV.put(`${id}-name`, name);
   }
