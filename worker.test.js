@@ -24,25 +24,17 @@ class MockAssets {
   }
 }
 
-test('API endpoints require authorization', async () => {
+test('endpoints require valid UUID authorization', async () => {
   const kv = new MockKV();
-  const cases = [
-    ['GET', 'profile'],
-    ['POST', 'guidance'],
-    ['POST', 'name'],
-    ['POST', 'persona'],
-    ['POST', 'chat'],
-    ['GET', 'learn'],
-    ['POST', 'learn']
-  ];
-  for (const [method, path] of cases) {
-    const req = new Request(`http://example.com/api/${path}`, { method });
-    const res = await worker.fetch(req, { KV: kv });
-    assert.equal(res.status, 401);
-  }
+  const req1 = new Request('http://example.com/api/chat', { method: 'POST' });
+  let res = await worker.fetch(req1, { KV: kv });
+  assert.equal(res.status, 401);
+  const req2 = new Request('http://example.com/api/chat', { method: 'POST', headers: { Authorization: 'Bearer not-uuid' } });
+  res = await worker.fetch(req2, { KV: kv });
+  assert.equal(res.status, 400);
 });
 
-test('POST /api/init works without auth', async () => {
+test('POST /api/init stores single record', async () => {
   const kv = new MockKV();
   await kv.put('groq-api-key', 'test');
   const originalFetch = globalThis.fetch;
@@ -53,13 +45,16 @@ test('POST /api/init works without auth', async () => {
     throw new Error('unexpected fetch to ' + url);
   };
   try {
-    const req = new Request('http://example.com/api/init', { method: 'POST' });
+    const id = '123e4567-e89b-12d3-a456-426614174000';
+    const req = new Request('http://example.com/api/init', { method: 'POST', headers: { Authorization: 'Bearer ' + id } });
     const res = await worker.fetch(req, { KV: kv });
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.equal(body.name, 'Alex');
-    assert.ok(body.id);
-    assert.equal(await kv.get(`${body.id}-name`), 'Alex');
+    assert.equal(body.id, id);
+    const stored = JSON.parse(await kv.get(id));
+    assert.equal(stored.name, 'Alex');
+    assert.ok(stored.persona);
+    assert.ok(stored.lastUsed);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -71,23 +66,4 @@ test('GET / returns index.html', async () => {
   assert.equal(res.status, 200);
   const text = await res.text();
   assert.ok(text.includes('<title>Persona Trainer PWA</title>'));
-});
-
-
-test('profile returns stored data', async () => {
-  const kv = new MockKV();
-  await kv.put('user1-name', 'Jamie');
-  await kv.put('user1-persona', 'Test persona.');
-  await kv.put('user1-guidance', 'Be nice');
-  const req = new Request('http://example.com/api/profile', {
-    headers: { Authorization: 'Bearer user1' }
-  });
-  const res = await worker.fetch(req, { KV: kv });
-  assert.equal(res.status, 200);
-  const body = await res.json();
-  assert.deepEqual(body, {
-    name: 'Jamie',
-    persona: 'Test persona.',
-    guidance: 'Be nice'
-  });
 });

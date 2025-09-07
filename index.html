@@ -29,7 +29,6 @@ pre{background:#f9f9f9;padding:8px;border:1px solid #eee;border-radius:6px;white
 <nav class="nav nav-pills nav-fill sticky-top bg-light p-2" id="tabs">
 <button class="nav-link active" data-target="main">Chat</button>
 <button class="nav-link" data-target="learn">Learn</button>
-<button class="nav-link" data-target="persona">Persona</button>
 </nav>
 <section id="main" class="screen active container my-3">
 <h2>Chat</h2>
@@ -44,6 +43,7 @@ pre{background:#f9f9f9;padding:8px;border:1px solid #eee;border-radius:6px;white
   <button id="send" class="btn btn-primary">Send</button>
 </div>
 <button id="clearChat" class="btn btn-secondary">Clear</button>
+<button id="newPersona" class="btn btn-danger ms-2">New Persona</button>
 </section>
 <section id="learn" class="screen container my-3">
 <h2>Learning</h2>
@@ -51,70 +51,12 @@ pre{background:#f9f9f9;padding:8px;border:1px solid #eee;border-radius:6px;white
 <div id="qtext">Loading...</div>
 <div id="answers" class="list-group"></div>
 </section>
-<section id="persona" class="screen container my-3">
-<h2>Persona</h2>
-<input id="nameBox" class="form-control mb-2" placeholder="Persona name">
-<button id="updateName" class="btn btn-secondary mb-2">Update Name</button>
-<pre id="personaPreview"></pre>
-<textarea id="guidanceBox" rows="3" class="form-control mb-2"></textarea>
-<button id="updateGuidance" class="btn btn-primary mb-2">Update Guidance</button>
-<div>
-<button id="savePersona" class="btn btn-secondary me-2">Save</button>
-<button id="loadPersona" class="btn btn-secondary me-2">Load</button>
-<input type="file" id="loadInput" style="display:none">
-<button id="clearPersona" class="btn btn-danger">Clear</button>
-</div>
-</section>
 <script>
 if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js');}
-const defaultPersona='You are the digital twin of a real person who is ruthlessly asexual and devoid of gender or racial attributes.';
-function optimizePersonaText(text){
-  const sentences=text.split(/[\.\n]+/).map(s=>s.trim()).filter(Boolean);
-  const unique=[...new Set(sentences)];
-  return unique.map(s=>s.replace(/\s+/g,' ')).join('. ')+'.';
-}
 let personaId=localStorage.getItem('persona_id');
 if(!personaId){personaId=crypto.randomUUID();localStorage.setItem('persona_id',personaId);}
-let personaName=localStorage.getItem('persona_name')||'';
-let persona={text:defaultPersona};
-let guidanceText='';
-async function initName(){
-  if(!personaName){
-    const r=await fetch('/api/init',{method:'POST',headers:{Authorization:'Bearer '+personaId}});
-    if(r.ok){const j=await r.json();personaName=j.name;localStorage.setItem('persona_name',personaName);}
-  }
-  document.getElementById('nameBox').value=personaName;
-}
-async function loadProfile(){
-  const r=await fetch('/api/profile',{headers:{Authorization:'Bearer '+personaId}});
-  if(r.ok){const j=await r.json();persona.text=j.persona||defaultPersona;guidanceText=j.guidance||'';personaName=j.name||personaName;renderPersona();}
-}
-function renderPersona(){
-  const lines=persona.text.split('\n').slice(0,3).join('\n');
-  document.getElementById('personaPreview').textContent=lines+(persona.text.includes('\n')?'\n...':'')+(guidanceText?'\n'+guidanceText:'');
-  document.getElementById('guidanceBox').value=guidanceText;
-  document.getElementById('nameBox').value=personaName;
-}
-initName();
-loadProfile();
-document.getElementById('updateGuidance').onclick=async()=>{
-  guidanceText=document.getElementById('guidanceBox').value.trim();
-  await fetch('/api/guidance',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+personaId},body:JSON.stringify({guidance:guidanceText})});
-  renderPersona();
-};
-document.getElementById('updateName').onclick=async()=>{
-  const nm=document.getElementById('nameBox').value.trim();
-  await fetch('/api/name',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+personaId},body:JSON.stringify({name:nm})});
-  personaName=nm;localStorage.setItem('persona_name',personaName);
-};
-document.getElementById('savePersona').onclick=()=>{
-  const data=JSON.stringify({persona:persona.text,guidance:guidanceText},null,2);
-  const blob=new Blob([data],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='persona.json';a.click();URL.revokeObjectURL(a.href);
-};
-document.getElementById('loadPersona').onclick=()=>document.getElementById('loadInput').click();
-document.getElementById('loadInput').onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=async ev=>{try{const obj=JSON.parse(ev.target.result);persona.text=optimizePersonaText(obj.persona||defaultPersona);guidanceText=obj.guidance||'';await fetch('/api/persona',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+personaId},body:JSON.stringify({persona:persona.text,guidance:guidanceText})});renderPersona();}catch(err){console.error(err);}};reader.readAsText(file);};
-document.getElementById('clearPersona').onclick=async()=>{persona.text=defaultPersona;guidanceText='';await fetch('/api/persona',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+personaId},body:JSON.stringify({persona:persona.text,guidance:guidanceText})});renderPersona();};
+async function ensurePersona(){await fetch('/api/init',{method:'POST',headers:{Authorization:'Bearer '+personaId}});}
+ensurePersona();
 let chatHistory=[];
 const chatInput=document.getElementById('chatInput');
 const historyDiv=document.getElementById('history');
@@ -125,10 +67,11 @@ async function sendChat(){const q=chatInput.value.trim();if(!q)return;chatHistor
 document.getElementById('send').onclick=sendChat;document.getElementById('clearChat').onclick=()=>{chatHistory=[];renderChat();};document.querySelectorAll('.sample').forEach(b=>b.onclick=()=>{chatInput.value=b.textContent;sendChat();});
 let currentQA=null;let started=false;
 async function fetchQuestion(selected){try{const opts={headers:{Authorization:'Bearer '+personaId}};if(selected==null){opts.method='GET';}else{opts.method='POST';opts.headers['Content-Type']='application/json';opts.body=JSON.stringify({selected});}
-const r=await fetch('/api/learn',opts);const j=await r.json();currentQA=j;document.getElementById('qtext').textContent=j.question;const answersDiv=document.getElementById('answers');answersDiv.innerHTML='';j.answers.forEach((ans,i)=>{const d=document.createElement('div');d.textContent=ans;d.className='list-group-item list-group-item-action answer'+(i===j.personaIndex?' persona':'');d.onclick=()=>fetchQuestion(i);answersDiv.appendChild(d);});const confDiv=document.getElementById('confidence');confDiv.textContent='Confidence: '+j.confidence;confDiv.style.color=j.confidence==='high'?'green':j.confidence==='medium'?'orange':'red';persona.text=j.persona;renderPersona();started=true;}catch(e){document.getElementById('qtext').textContent='Error';}}
+const r=await fetch('/api/learn',opts);const j=await r.json();currentQA=j;document.getElementById('qtext').textContent=j.question;const answersDiv=document.getElementById('answers');answersDiv.innerHTML='';j.answers.forEach((ans,i)=>{const d=document.createElement('div');d.textContent=ans;d.className='list-group-item list-group-item-action answer'+(i===j.personaIndex?' persona':'');d.onclick=()=>fetchQuestion(i);answersDiv.appendChild(d);});const confDiv=document.getElementById('confidence');confDiv.textContent='Confidence: '+j.confidence;confDiv.style.color=j.confidence==='high'?'green':j.confidence==='medium'?'orange':'red';started=true;}catch(e){document.getElementById('qtext').textContent='Error';}}
 document.querySelectorAll('#tabs .nav-link').forEach(btn=>{btn.onclick=()=>showScreen(btn.dataset.target);});
 let currentScreen='main';
 function showScreen(id){currentScreen=id;document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('#tabs .nav-link').forEach(b=>b.classList.remove('active'));document.querySelector(`#tabs [data-target="${id}"]`).classList.add('active');if(id==='learn'&&!started)fetchQuestion();}
+document.getElementById('newPersona').onclick=()=>{localStorage.clear();location.reload();};
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
