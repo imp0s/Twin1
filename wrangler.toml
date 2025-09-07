@@ -2,9 +2,10 @@ name = "atorvo"
 main = "worker.js"
 compatibility_date = "2024-10-01"
 
-#[[kv_namespaces]]
-#binding = "KV"
-#id = "$KV"
+[[kv_namespaces]]
+binding = "KV"
+id = "kv"
+preview_id = "kv"
 
 [assets]
 binding = "ASSETS"
