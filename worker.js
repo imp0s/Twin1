@@ -1,3 +1,5 @@
+import { handleAdmin } from './admin.js';
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -28,6 +30,9 @@ export default {
         const asset = await env.ASSETS.fetch(new Request(url.origin + '/icon.svg'));
         const text = await asset.text();
         return new Response(text, { headers: { 'Content-Type': 'image/svg+xml; charset=UTF-8' } });
+      }
+      if (url.pathname === '/admin') {
+        return await handleAdmin(request, env);
       }
     }
 

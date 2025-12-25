@@ -67,3 +67,31 @@ test('GET / returns index.html', async () => {
   const text = await res.text();
   assert.ok(text.includes('<title>Persona Trainer PWA</title>'));
 });
+
+test('GET /admin requires credentials and reads env vars', async () => {
+  const kv = new MockKV();
+  const env = { KV: kv, ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'secret' };
+
+  const reqMissing = new Request('http://example.com/admin');
+  let res = await worker.fetch(reqMissing, env);
+  assert.equal(res.status, 401);
+
+  const badAuth = 'Basic ' + Buffer.from('admin:wrong').toString('base64');
+  res = await worker.fetch(new Request('http://example.com/admin', { headers: { Authorization: badAuth } }), env);
+  assert.equal(res.status, 403);
+
+  const goodAuth = 'Basic ' + Buffer.from('admin:secret').toString('base64');
+  res = await worker.fetch(new Request('http://example.com/admin', { headers: { Authorization: goodAuth } }), env);
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.equal(text, 'Admin OK');
+});
+
+test('GET /admin reports missing env vars', async () => {
+  const env = { KV: new MockKV() };
+  const req = new Request('http://example.com/admin');
+  const res = await worker.fetch(req, env);
+  assert.equal(res.status, 500);
+  const text = await res.text();
+  assert.equal(text, 'Admin credentials not configured');
+});
